@@ -29,9 +29,10 @@
     "targets": "all",
     "publisher": "Aegis Trace",
     "homepage": "https://github.com/charlemagne404/NetFix",
-    "shortDescription": "Visual Wi-Fi and network diagnostics for Windows.",
+    "shortDescription": "Visual Wi-Fi and network diagnostics for Windows and macOS.",
     "longDescription": "Aegis Trace explains where the connection chain breaks, shows evidence, and offers allowlisted repairs only after diagnosis.",
     "icon": [
+      "icons/icon.png",
       "icons/icon.ico"
     ],
     "category": "Utility"

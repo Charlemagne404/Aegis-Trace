@@ -1,8 +1,8 @@
 use crate::diagnostics::{
-    environment_info, export_local_report, generate_wlan_report_impl, run_allowlisted_fix,
-    run_windows_scan, runtime_health, system_metrics, EnvironmentInfo, FixConfirmation,
-    FixExecutionResult, RuntimeHealth, ScanProgressEvent, ScanResult, SystemMetrics,
+    export_local_report, EnvironmentInfo, FixConfirmation, FixExecutionResult, RuntimeHealth,
+    ScanProgressEvent, ScanResult, SystemMetrics,
 };
+use crate::platform;
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
@@ -11,10 +11,14 @@ pub async fn run_scan(
     scenario_id: Option<String>,
     run_id: String,
 ) -> Result<ScanResult, String> {
-    run_windows_scan(scenario_id, &run_id, |progress: ScanProgressEvent| {
-        let _ = app.emit("aegis-trace://scan-progress", progress);
+    tauri::async_runtime::spawn_blocking(move || {
+        platform::run_scan(scenario_id, &run_id, |progress: ScanProgressEvent| {
+            let _ = app.emit("aegis-trace://scan-progress", progress);
+        })
+        .map_err(|error| error.to_string())
     })
-    .map_err(|error| error.to_string())
+    .await
+    .map_err(|error| format!("Native scan task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -22,7 +26,11 @@ pub async fn run_fix(
     fix_id: String,
     confirmation: Option<FixConfirmation>,
 ) -> Result<FixExecutionResult, String> {
-    run_allowlisted_fix(&fix_id, confirmation.as_ref()).map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        platform::run_fix(&fix_id, confirmation.as_ref()).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Native repair task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -37,20 +45,30 @@ pub async fn export_report(
 
 #[tauri::command]
 pub async fn generate_wlan_report() -> Result<FixExecutionResult, String> {
-    generate_wlan_report_impl().map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(|| {
+        platform::generate_wireless_report().map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Native wireless report task failed: {error}"))?
 }
 
 #[tauri::command]
 pub async fn get_environment_info() -> Result<EnvironmentInfo, String> {
-    Ok(environment_info())
+    tauri::async_runtime::spawn_blocking(platform::environment_info)
+        .await
+        .map_err(|error| format!("Environment info task failed: {error}"))
 }
 
 #[tauri::command]
 pub async fn get_runtime_health() -> Result<RuntimeHealth, String> {
-    Ok(runtime_health())
+    tauri::async_runtime::spawn_blocking(platform::runtime_health)
+        .await
+        .map_err(|error| format!("Runtime health task failed: {error}"))
 }
 
 #[tauri::command]
 pub async fn get_system_metrics() -> Result<SystemMetrics, String> {
-    Ok(system_metrics())
+    tauri::async_runtime::spawn_blocking(platform::system_metrics)
+        .await
+        .map_err(|error| format!("System metrics task failed: {error}"))
 }

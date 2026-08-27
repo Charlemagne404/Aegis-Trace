@@ -1,4 +1,6 @@
+import { Activity, ArrowRight, CheckCircle2, CircleDashed } from "lucide-react";
 import { motion } from "framer-motion";
+import type { CSSProperties } from "react";
 import type { DiagnosticNode, ScanProgress } from "@/core/types";
 import { TimelineNode } from "./TimelineNode";
 import { cn } from "@/utils/cn";
@@ -56,34 +58,108 @@ export function DiagnosticTimeline({
     : -1;
   const primaryFailedIndex = nodes.findIndex((node) => node.status === "failed");
   const completedNodeIdSet = new Set(completedNodeIds);
+  const completedStageCount = isScanning
+    ? completedNodeIds.length
+    : nodes.filter((node) => !["pending", "running"].includes(node.status)).length;
+  const attentionCount = nodes.filter(
+    (node) => node.status === "failed" || node.status === "warning"
+  ).length;
+  const timelineCount = Math.max(nodes.length, 1);
+  const connectorCount = Math.max(nodes.length - 1, 1);
+  const nodeGridStyle = {
+    gridTemplateColumns: `repeat(${timelineCount}, minmax(0, 1fr))`
+  } satisfies CSSProperties;
+  const connectorGridStyle = {
+    gridTemplateColumns: `repeat(${connectorCount}, minmax(0, 1fr))`
+  } satisfies CSSProperties;
 
   return (
-    <section className="app-panel min-w-0 rounded-[14px] px-4 py-3.5 sm:px-5 sm:py-4">
-      <div className="hide-scrollbar relative overflow-x-auto overflow-y-hidden pb-1">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-full bg-[radial-gradient(circle_at_50%_0%,rgba(77,134,223,0.06),transparent_38%)]" />
+    <section
+      className={cn(
+        "timeline-panel app-panel min-w-0 shrink-0 overflow-hidden rounded-[18px] px-3 py-3 sm:px-5 sm:py-3.5",
+        isScanning && "timeline-panel-scanning"
+      )}
+      aria-label="Diagnostic connection path"
+      aria-live="polite"
+    >
+      <div className="mb-2.5 flex min-w-0 items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] border border-[#4b8dff]/20 bg-[#4b8dff]/[0.08] text-[#8db9ff]">
+            <Activity className={cn("h-3.5 w-3.5", isScanning && "animate-pulse")} strokeWidth={2} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-[0.95rem] font-semibold tracking-[0.01em] text-white">
+              Connection path
+            </h2>
+            <p className="hidden truncate text-xs text-slate-500 sm:block">
+              Device to app layer · click a stage to inspect its evidence
+            </p>
+          </div>
+        </div>
 
-        <div className="relative min-w-[760px] px-2 xl:min-w-0">
-          <div className="pointer-events-none absolute left-[5%] right-[5%] top-[4.72rem]">
-            <div className="grid grid-cols-9 gap-0">
-              {nodes.slice(0, -1).map((node, index) => {
-                const rightNode = nodes[index + 1];
-                const connectorHasResolvedStatus =
-                  node.status !== "pending" || rightNode.status !== "pending";
-                const liveConnectorClass =
-                  isScanning &&
-                  !connectorHasResolvedStatus &&
-                  (index < activeIndex ||
-                    (completedNodeIdSet.has(node.id) && completedNodeIdSet.has(rightNode?.id ?? "")))
-                    ? "bg-[linear-gradient(90deg,#31baf7_0%,#67e8f9_100%)] shadow-[0_0_12px_rgba(56,189,248,0.14)]"
-                    : connectorTone(node, rightNode, index, primaryFailedIndex);
+        <div className="flex shrink-0 items-center gap-2 text-xs">
+          <span
+            className={cn(
+              "hidden items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium sm:inline-flex",
+              isScanning
+                ? "border-cyan-300/20 bg-cyan-300/[0.07] text-cyan-100"
+                : attentionCount
+                  ? "border-[#ff6a5a]/20 bg-[#ff6a5a]/[0.06] text-[#ffb0a8]"
+                  : "border-[#54d786]/20 bg-[#54d786]/[0.06] text-[#8ae6af]"
+            )}
+          >
+            <span
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                isScanning
+                  ? "bg-cyan-300 animate-pulse"
+                  : attentionCount
+                    ? "bg-[#ff6a5a]"
+                    : "bg-[#54d786]"
+              )}
+            />
+            {isScanning
+              ? scanProgress?.nodeLabel
+                ? `Checking ${scanProgress.nodeLabel}`
+                : "Preparing scan"
+              : attentionCount
+                ? `${attentionCount} stage${attentionCount === 1 ? "" : "s"} need attention`
+                : "All stages passed"}
+          </span>
+          <span className="font-medium text-slate-400">
+            {isScanning ? `${completedStageCount}/${nodes.length}` : `${nodes.length} stages`}
+          </span>
+        </div>
+      </div>
 
-                return (
-                  <motion.div
-                    key={`${node.id}-${rightNode?.id}`}
-                    className={cn(
-                      "mx-0 h-[2px] origin-left rounded-full transition-[opacity] duration-300",
-                      liveConnectorClass
-                    )}
+      <div className="timeline-scroll-shell relative overflow-x-auto overflow-y-hidden pb-1">
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-7 bg-gradient-to-r from-[#101b2b] to-transparent opacity-0 sm:hidden" />
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-7 bg-gradient-to-l from-[#101b2b] to-transparent opacity-0 sm:hidden" />
+
+        <div className="relative min-w-[820px] px-1 xl:min-w-0">
+          <div
+            className="pointer-events-none absolute inset-x-[4.5%] top-[4.02rem] grid"
+            style={connectorGridStyle}
+          >
+            {nodes.slice(0, -1).map((node, index) => {
+              const rightNode = nodes[index + 1];
+              const connectorHasResolvedStatus =
+                node.status !== "pending" || rightNode.status !== "pending";
+              const liveConnectorClass =
+                isScanning &&
+                !connectorHasResolvedStatus &&
+                (index < activeIndex ||
+                  (completedNodeIdSet.has(node.id) && completedNodeIdSet.has(rightNode?.id ?? "")))
+                  ? "bg-[linear-gradient(90deg,#31baf7_0%,#67e8f9_100%)] shadow-[0_0_12px_rgba(56,189,248,0.14)]"
+                  : connectorTone(node, rightNode, index, primaryFailedIndex);
+
+              return (
+                <motion.div
+                  key={`${node.id}-${rightNode?.id}`}
+                  className={cn(
+                    "mx-0 h-[2px] origin-left rounded-full transition-[opacity] duration-300",
+                    liveConnectorClass
+                  )}
                   initial={{ scaleX: 0, opacity: 0 }}
                   animate={{
                     scaleX:
@@ -103,12 +179,11 @@ export function DiagnosticTimeline({
                   }}
                   transition={{ delay: index * 0.04, duration: 0.4, ease: "easeOut" }}
                 />
-                );
-              })}
-            </div>
+              );
+            })}
           </div>
 
-          <div className="grid grid-cols-10 gap-0.5 md:gap-1 xl:gap-0.5">
+          <div className="grid gap-0.5 md:gap-1 xl:gap-0.5" style={nodeGridStyle}>
             {nodes.map((node, index) => (
               <TimelineNode
                 key={node.id}
@@ -127,21 +202,25 @@ export function DiagnosticTimeline({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-end gap-x-5 gap-y-2 text-[13px] text-slate-400">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#54d786] shadow-[0_0_10px_rgba(84,215,134,0.2)]" />
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 px-1 text-[11px] text-slate-400 sm:text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#54d786]" />
             Passed
           </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff6257] shadow-[0_0_10px_rgba(255,98,87,0.2)]" />
-            Issue
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full border border-[#ff6257] bg-[#ff6257]/20" />
+            Needs attention
           </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#465369]" />
-            Pending
+          <span className="inline-flex items-center gap-1.5">
+            <CircleDashed className="h-3.5 w-3.5 text-[#64748b]" />
+            Not evaluated
           </span>
         </div>
+        <span className="inline-flex items-center gap-1.5 text-slate-500 sm:hidden">
+          Swipe to explore
+          <ArrowRight className="h-3.5 w-3.5" />
+        </span>
       </div>
     </section>
   );

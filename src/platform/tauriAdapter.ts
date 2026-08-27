@@ -4,6 +4,7 @@ import {
   createDegradedRuntimeHealth,
   createPreviewRuntimeHealth
 } from "@/core/runtimeHealth";
+import { isLivePlatform } from "@/core/platform";
 import { isAllowlistedFixId } from "@/core/fixRegistry";
 import {
   buildHtmlReport,
@@ -14,7 +15,6 @@ import {
   reportFilename,
   uint8ArrayToBase64
 } from "@/core/reportExport";
-import packageInfo from "../../package.json";
 import type {
   EnvironmentInfo,
   FixAction,
@@ -27,6 +27,7 @@ import type {
   SystemMetrics
 } from "@/core/types";
 import { mockAdapter } from "./mockAdapter";
+import { getBrowserEnvironmentInfo, getBrowserSystemMetrics } from "./browserEnvironment";
 import type { PlatformAdapter } from "./platformAdapter";
 
 export function hasTauriRuntime(): boolean {
@@ -50,49 +51,18 @@ class TauriCommandError extends Error {
   }
 }
 
-function browserEnvironmentInfo(): EnvironmentInfo {
-  return {
-    os: navigator.platform || "Unknown",
-    hostname: "Local browser",
-    appVersion: packageInfo.version,
-    isAdmin: false,
-    isWindows: navigator.userAgent.toLowerCase().includes("windows"),
-    isTauri: hasTauriRuntime()
-  };
-}
-
-function browserSystemMetrics(): SystemMetrics {
-  const memory = "memory" in performance ? (performance as Performance & {
-    memory?: {
-      usedJSHeapSize: number;
-      jsHeapSizeLimit: number;
-    };
-  }).memory : undefined;
-
-  return {
-    collectedAt: new Date().toISOString(),
-    source: "browser",
-    uptimeSeconds: Math.round(performance.now() / 1000),
-    cpuUsagePercent: null,
-    memoryUsedBytes: memory?.usedJSHeapSize ?? null,
-    memoryTotalBytes: memory?.jsHeapSizeLimit ?? null,
-    networkReceivedBytes: null,
-    networkTransmittedBytes: null
-  };
-}
-
 let environmentInfoPromise: Promise<EnvironmentInfo> | undefined;
 
 async function getResolvedEnvironmentInfo(): Promise<EnvironmentInfo> {
   if (!hasTauriRuntime()) {
-    return browserEnvironmentInfo();
+    return getBrowserEnvironmentInfo();
   }
 
   if (!environmentInfoPromise) {
     environmentInfoPromise = invoke<EnvironmentInfo>("get_environment_info", {}).catch((error) => {
       console.warn("Tauri command get_environment_info failed; using synthesized runtime info", error);
       return {
-        ...browserEnvironmentInfo(),
+        ...getBrowserEnvironmentInfo(true),
         isTauri: true
       };
     });
@@ -171,7 +141,7 @@ export const tauriAdapter: PlatformAdapter = {
     }
 
     const environment = await getResolvedEnvironmentInfo();
-    if (!environment.isWindows) {
+    if (!isLivePlatform(environment.platform)) {
       return mockAdapter.runScan({ scenarioId, runId, onProgress });
     }
 
@@ -200,13 +170,13 @@ export const tauriAdapter: PlatformAdapter = {
     }
 
     const environment = await getResolvedEnvironmentInfo();
-    if (!hasTauriRuntime() || !environment.isWindows) {
+    if (!hasTauriRuntime() || !isLivePlatform(environment.platform)) {
       return {
         fixId: fix.id,
         status: "blocked",
         title: "Fix unavailable",
         message:
-          "Real fix execution is only available inside the Windows Tauri build. No command was executed."
+          "Real fix execution is only available inside the Windows or macOS Tauri build. No command was executed."
       };
     }
 
@@ -254,7 +224,7 @@ export const tauriAdapter: PlatformAdapter = {
   },
   async getRuntimeHealth() {
     if (!hasTauriRuntime()) {
-      return createPreviewRuntimeHealth(browserEnvironmentInfo());
+      return createPreviewRuntimeHealth(getBrowserEnvironmentInfo());
     }
 
     try {
@@ -263,20 +233,20 @@ export const tauriAdapter: PlatformAdapter = {
       const detail =
         error instanceof Error
           ? error.message
-          : "Aegis could not verify the native Windows runtime.";
+          : "Aegis could not verify the native desktop runtime.";
       return createDegradedRuntimeHealth(detail);
     }
   },
   async getSystemMetrics() {
     if (!hasTauriRuntime()) {
-      return browserSystemMetrics();
+      return getBrowserSystemMetrics();
     }
 
     try {
       return await invokeTauriCommand<SystemMetrics>("get_system_metrics", {});
     } catch (error) {
       console.warn("Tauri command get_system_metrics failed; using browser metrics", error);
-      return browserSystemMetrics();
+      return getBrowserSystemMetrics();
     }
   }
 };

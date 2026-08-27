@@ -24,6 +24,7 @@ import type {
   ThemeMode,
   WorkspaceMode
 } from "@/core/types";
+import { platformLabel } from "@/core/platform";
 import { cn } from "@/utils/cn";
 
 type FooterMetrics = {
@@ -56,6 +57,7 @@ type AppShellProps = {
   onThemeChange: (theme: ThemeMode) => void;
   onRunScan: () => void;
   onExportReport: () => void;
+  onOpenHistory: () => void;
   onOpenSettings: () => void;
 };
 
@@ -201,6 +203,7 @@ export function AppShell({
   onThemeChange,
   onRunScan,
   onExportReport,
+  onOpenHistory,
   onOpenSettings
 }: AppShellProps) {
   const cpuSparkPoints = buildSparklinePoints(footerMetrics.cpuHistory);
@@ -258,8 +261,8 @@ export function AppShell({
 
   const workspaceSummary = {
     live: {
-      badge: "Live Windows device",
-      title: scan.environment.hostname ?? "Windows desktop",
+      badge: `Live ${platformLabel(environmentInfo.platform, environmentInfo.os)} device`,
+      title: scan.environment.hostname ?? `${platformLabel(environmentInfo.platform, environmentInfo.os)} desktop`,
       description: "Allowlisted diagnostics and repair actions are available.",
       accentClassName: "text-[#54d786]",
       dotClassName: "bg-[#54d786]"
@@ -267,13 +270,13 @@ export function AppShell({
     preview: {
       badge: "Preview workspace",
       title: scan.environment.hostname ?? "Local preview",
-      description: "Aegis is using preview data until the Windows desktop runtime is available.",
+      description: "Aegis is using preview data until a supported desktop runtime is available.",
       accentClassName: "text-[#f2b84b]",
       dotClassName: "bg-[#f2b84b]"
     },
     degraded: {
       badge: "Runtime issue",
-      title: scan.environment.hostname ?? "Windows desktop",
+      title: scan.environment.hostname ?? `${platformLabel(environmentInfo.platform, environmentInfo.os)} desktop`,
       description: "Live diagnostics are paused until the native runtime is healthy again.",
       accentClassName: "text-[#ff8a7e]",
       dotClassName: "bg-[#ff6a5a]"
@@ -290,12 +293,12 @@ export function AppShell({
     environmentInfo.hostname ??
     scan.environment.hostname ??
     workspaceSummary.title ??
-    "Windows desktop";
+    `${platformLabel(environmentInfo.platform, environmentInfo.os)} desktop`;
 
   const adapterName =
     getNodeEvidenceValue(scan, "adapter", "adapter") ??
     hostnameDisplay ??
-    "Windows desktop";
+    `${platformLabel(environmentInfo.platform, environmentInfo.os)} desktop`;
   const networkName = getNodeEvidenceValue(scan, "wifi", "ssid");
   const wifiSignal = getNodeEvidenceValue(scan, "wifi", "signal");
   const ipAddress = getNodeEvidenceValue(scan, "ip", "ipv4");
@@ -315,17 +318,17 @@ export function AppShell({
 
       <div className="relative mx-auto h-full max-w-[1680px] overflow-hidden">
         <div className="grid h-full lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
-          <aside className="min-h-0 border-b border-[color:var(--aegis-line)] bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(7,14,24,0.98)_100%)] px-3 py-5 lg:row-span-2 lg:flex lg:flex-col lg:overflow-hidden lg:border-b-0 lg:border-r lg:px-3.5 lg:py-6">
+          <aside className="min-h-0 border-b border-[color:var(--aegis-line)] bg-[linear-gradient(180deg,rgba(9,16,28,0.98)_0%,rgba(7,14,24,0.98)_100%)] px-4 py-3 lg:row-span-2 lg:flex lg:flex-col lg:overflow-hidden lg:border-b-0 lg:border-r lg:px-3.5 lg:py-6">
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="flex items-center gap-3 px-3 pb-5 pt-1">
-                <div className="grid h-12 w-12 place-items-center rounded-[18px] border border-[#2f7dff]/26 bg-[radial-gradient(circle_at_50%_35%,rgba(52,120,255,0.18),transparent_62%),linear-gradient(180deg,rgba(12,27,45,0.98)_0%,rgba(8,17,30,0.98)_100%)] text-[#5ba1ff] shadow-[0_0_26px_rgba(47,125,255,0.12)]">
-                  <Shield className="h-6 w-6" strokeWidth={1.7} />
+              <div className="flex items-center gap-3 px-1 pb-3 pt-0.5 lg:px-3 lg:pb-5 lg:pt-1">
+                <div className="grid h-10 w-10 place-items-center rounded-[15px] border border-[#2f7dff]/26 bg-[radial-gradient(circle_at_50%_35%,rgba(52,120,255,0.18),transparent_62%),linear-gradient(180deg,rgba(12,27,45,0.98)_0%,rgba(8,17,30,0.98)_100%)] text-[#5ba1ff] shadow-[0_0_26px_rgba(47,125,255,0.12)] lg:h-12 lg:w-12 lg:rounded-[18px]">
+                  <Shield className="h-5 w-5 lg:h-6 lg:w-6" strokeWidth={1.7} />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-[1.02rem] font-semibold tracking-[0.01em] text-white">
+                  <p className="truncate text-[0.96rem] font-semibold tracking-[0.01em] text-white lg:text-[1.02rem]">
                     AEGIS-DESKTOP
                   </p>
-                  <p className="mt-0.5 text-[0.98rem] tracking-[0.01em] text-slate-300">
+                  <p className="mt-0.5 text-[0.88rem] tracking-[0.01em] text-slate-300 lg:text-[0.98rem]">
                     Aegis Trace
                   </p>
                 </div>
@@ -375,7 +378,7 @@ export function AppShell({
             <div className="mt-4 hidden rounded-[12px] border border-[rgba(104,127,160,0.12)] bg-[linear-gradient(180deg,rgba(18,29,44,0.92)_0%,rgba(11,19,30,0.98)_100%)] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(170,192,224,0.03),0_14px_28px_rgba(0,0,0,0.16)] lg:block">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-[14px] border border-white/[0.05] bg-[rgba(14,24,38,0.9)] text-slate-300">
-                  <Wifi className="h-4.5 w-4.5" strokeWidth={1.8} />
+                  <Wifi className="h-[18px] w-[18px]" strokeWidth={1.8} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[0.95rem] font-medium tracking-[0.01em] text-slate-100">
@@ -407,7 +410,7 @@ export function AppShell({
                   type="button"
                   onClick={() => onModeChange(technicianModeEnabled ? "normal" : "technician")}
                   className={cn(
-                    "relative h-6.5 w-12 rounded-full border transition",
+                    "relative h-[26px] w-12 rounded-full border transition",
                     technicianModeEnabled
                       ? "border-[#2f7dff]/70 bg-[linear-gradient(180deg,#3b8dff_0%,#2f7dff_100%)] shadow-[0_0_18px_rgba(47,125,255,0.18)]"
                       : "border-white/[0.08] bg-[#1b2737]"
@@ -427,30 +430,31 @@ export function AppShell({
           </aside>
 
           <header className="min-w-0 border-b border-white/8 bg-[#0a1320]/95 px-4 sm:px-6 lg:px-7">
-            <div className="flex min-h-[76px] flex-col justify-center gap-3 xl:min-h-[80px] xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-h-[68px] flex-col justify-center gap-2.5 py-2.5 xl:min-h-[80px] xl:flex-row xl:items-center xl:justify-between xl:py-0">
               <div className="flex min-w-0 items-center gap-4">
-                <div className="grid h-10 w-10 place-items-center rounded-[14px] border border-white/8 bg-white/[0.02] text-slate-300">
-                  <LaptopMinimal className="h-5 w-5" strokeWidth={1.8} />
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[13px] border border-white/8 bg-white/[0.02] text-slate-300 sm:h-10 sm:w-10 sm:rounded-[14px]">
+                  <LaptopMinimal className="h-[18px] w-[18px] sm:h-5 sm:w-5" strokeWidth={1.8} />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[13px] text-slate-500">Current device</p>
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-[1.04rem] font-medium tracking-[0.01em] text-white">
+                    <p className="truncate text-[0.98rem] font-medium tracking-[0.01em] text-white sm:text-[1.04rem]">
                       {hostnameDisplay}
                     </p>
                     <span className={cn("h-1.5 w-1.5 rounded-full", workspaceSummary.dotClassName)} />
-                    <p className="truncate text-[0.92rem] text-slate-400">{workspaceSummary.badge}</p>
+                    <p className="truncate text-[0.78rem] text-slate-400 sm:text-[0.92rem]">{workspaceSummary.badge}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5 xl:justify-end">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 xl:justify-end">
                 <button
                   type="button"
                   onClick={onRunScan}
                   disabled={isScanning || !scanActionEnabled}
                   title={!scanActionEnabled ? scanActionReason : undefined}
-                  className="app-outline-button inline-flex items-center gap-2 rounded-[10px] px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  className="app-outline-button inline-flex items-center gap-2 rounded-[10px] px-3.5 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:py-2.5"
+                  aria-busy={isScanning}
                 >
                   <Play className="h-4 w-4 text-[#4b8dff]" strokeWidth={1.8} />
                   {isScanning ? "Running scan" : "Run scan"}
@@ -460,14 +464,24 @@ export function AppShell({
                   onClick={onExportReport}
                   className="app-icon-button"
                   aria-label="Export report"
+                  title="Export report"
                 >
                   <HardDrive className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  className="app-icon-button"
+                  aria-label="Open scan history"
+                >
+                  <History className="h-5 w-5" />
                 </button>
                 <button
                   type="button"
                   onClick={onOpenSettings}
                   className="app-icon-button"
                   aria-label="Open settings"
+                  title="Open settings"
                 >
                   <Settings className="h-5 w-5" />
                 </button>
@@ -475,7 +489,7 @@ export function AppShell({
             </div>
           </header>
 
-          <main className="min-h-0 min-w-0 overflow-hidden px-3 py-2 sm:px-4 lg:px-6 lg:py-2">
+          <main className="app-main min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 lg:px-6 lg:py-3">
             {children}
           </main>
 

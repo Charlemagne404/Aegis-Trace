@@ -1,7 +1,7 @@
 [package]
 name = "aegis-trace"
 version = "0.1.0"
-description = "A visual Wi-Fi and network diagnostic utility for Windows"
+description = "A visual Wi-Fi and network diagnostic utility for Windows and macOS"
 authors = ["Aegis Trace"]
 edition = "2021"
 

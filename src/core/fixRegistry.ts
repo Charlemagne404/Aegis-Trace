@@ -7,7 +7,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "flush-dns",
     title: "Flush DNS cache",
     description:
-      "Clears stale local DNS entries so Windows asks your configured DNS server again.",
+      "Clears stale local DNS entries so the operating system asks your configured DNS server again.",
     safety: "safe",
     requiresAdmin: false,
     commandsPreview: ["ipconfig /flushdns"],
@@ -27,7 +27,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "restart-wlan-service",
     title: "Restart WLAN AutoConfig",
     description:
-      "Restarts the Windows service that manages wireless discovery and connection.",
+      "Restarts the operating-system service or interface that manages wireless discovery and connection.",
     safety: "safe",
     requiresAdmin: true,
     commandsPreview: ["Restart-Service WlanSvc"],
@@ -37,7 +37,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "generate-wlan-report",
     title: "Generate WLAN report",
     description:
-      "Asks Windows to create its built-in wireless diagnostics report for local review.",
+      "Opens the platform's built-in wireless diagnostics tool for local review.",
     safety: "safe",
     requiresAdmin: false,
     commandsPreview: ["netsh wlan show wlanreport"],
@@ -47,7 +47,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "open-network-settings",
     title: "Open Network Settings",
     description:
-      "Opens the Windows network settings page so you can review connection state manually.",
+      "Opens the platform network settings so you can review connection state manually.",
     safety: "safe",
     requiresAdmin: false,
     commandsPreview: ["start ms-settings:network"],
@@ -72,7 +72,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "forget-current-profile",
     title: "Forget current Wi-Fi profile",
     description:
-      "Deletes the saved Wi-Fi profile so Windows can reconnect from a clean profile.",
+      "Deletes the saved Wi-Fi profile so the device can reconnect from a clean profile.",
     safety: "moderate",
     requiresAdmin: false,
     commandsPreview: ["netsh wlan delete profile name=\"<SSID>\""],
@@ -112,7 +112,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "winsock-reset",
     title: "Winsock reset",
     description:
-      "Resets the Windows network socket catalog. This is a last-resort repair.",
+      "Resets the Windows network socket catalog. This is a Windows-only last-resort repair.",
     safety: "aggressive",
     requiresAdmin: true,
     commandsPreview: ["netsh winsock reset"],
@@ -124,7 +124,7 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     id: "tcpip-reset",
     title: "TCP/IP reset",
     description:
-      "Resets core Windows TCP/IP configuration. This is an advanced last-resort fix.",
+      "Resets core Windows TCP/IP configuration. This is a Windows-only advanced last-resort fix.",
     safety: "aggressive",
     requiresAdmin: true,
     commandsPreview: ["netsh int ip reset"],

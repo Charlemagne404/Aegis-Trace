@@ -47,4 +47,18 @@ describe("scan history storage", () => {
     expect(nextHistory).toHaveLength(1);
     expect(nextHistory[0]?.capturedAt).toBe("2026-05-27T09:18:00.000Z");
   });
+
+  it("ignores malformed or incomplete saved scans", () => {
+    const validEntry = makeEntry("valid", "2026-05-27T09:18:00.000Z");
+    window.localStorage.setItem(
+      "aegis.scan-history.v1",
+      JSON.stringify([
+        validEntry,
+        { id: "broken", capturedAt: "not-a-date", reason: "manual", scan: {} },
+        { id: "wrong-scenario", capturedAt: validEntry.capturedAt, reason: "scenario", scenarioId: "unknown", scan: validEntry.scan }
+      ])
+    );
+
+    expect(loadScanHistory().map((entry) => entry.id)).toEqual(["valid"]);
+  });
 });

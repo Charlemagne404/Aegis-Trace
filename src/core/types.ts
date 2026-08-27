@@ -17,6 +17,8 @@ export type ThemeMode = "system" | "dark" | "light";
 
 export type WorkspaceMode = "live" | "preview" | "lab" | "degraded";
 
+export type PlatformId = "windows" | "macos" | "linux" | "unknown";
+
 export type ScanHistoryReason = "manual" | "scenario" | "verification";
 
 export type ReportFormat = "json" | "html" | "zip";
@@ -102,6 +104,7 @@ export type ScanResult = {
   nodes: DiagnosticNode[];
   environment: {
     os: string;
+    platform?: PlatformId;
     hostname?: string;
     appVersion: string;
     isAdmin?: boolean;
@@ -119,6 +122,7 @@ export type FixExecutionResult = {
 };
 
 export type EnvironmentInfo = ScanResult["environment"] & {
+  platform: PlatformId;
   isWindows: boolean;
   isTauri: boolean;
 };
@@ -162,7 +166,12 @@ export type SystemMetrics = {
 
 export type ScanProgress = {
   runId: string;
-  kind: "scan-started" | "node-started" | "node-completed" | "scan-finished";
+  kind:
+    | "scan-started"
+    | "node-started"
+    | "node-progressed"
+    | "node-completed"
+    | "scan-finished";
   nodeId?: string;
   nodeLabel?: string;
   nodeIndex?: number;
@@ -170,6 +179,13 @@ export type ScanProgress = {
   nodeSummary?: string;
   totalNodes: number;
   message: string;
+};
+
+export type ScanRunMetadata = {
+  reason: ScanHistoryReason;
+  scenarioId?: MockScenarioId;
+  relatedFixId?: string;
+  relatedFixTitle?: string;
 };
 
 export type RepairNodeTransition = {

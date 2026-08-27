@@ -1,13 +1,19 @@
 import { useCallback, useRef, useState } from "react";
 import { runDiagnosticEngine } from "@/core/diagnosticEngine";
-import type { DiagnosticNode, MockScenarioId, ScanProgress, ScanResult } from "@/core/types";
+import type {
+  DiagnosticNode,
+  MockScenarioId,
+  ScanProgress,
+  ScanResult,
+  ScanRunMetadata
+} from "@/core/types";
 import type { PlatformAdapter } from "@/platform/platformAdapter";
 import { TimeoutError, withTimeout } from "@/utils/async";
 
 type UseDiagnosticScanInput = {
   adapter: PlatformAdapter;
   initialScan: ScanResult;
-  onScanComplete?: (scan: ScanResult) => void;
+  onScanComplete?: (scan: ScanResult, metadata?: ScanRunMetadata) => void;
 };
 
 const SCAN_TIMEOUT_MS = 150_000;
@@ -111,6 +117,7 @@ export function useDiagnosticScan({
   const [completedNodeIds, setCompletedNodeIds] = useState<string[]>([]);
   const [scanProgress, setScanProgress] = useState<ScanProgress | undefined>();
   const [scanError, setScanError] = useState<string | undefined>();
+  const [scanDurationMs, setScanDurationMs] = useState<number | undefined>();
   const runIdRef = useRef(0);
   const scanResultRef = useRef(initialScan);
   const activeNodeIdRef = useRef<string | undefined>(undefined);
@@ -118,6 +125,8 @@ export function useDiagnosticScan({
   const isScanningRef = useRef(false);
 
   const isStaleRun = (runId: number) => runIdRef.current !== runId;
+
+  const canStartScan = useCallback(() => !isScanningRef.current, []);
 
   const resetLiveState = useCallback(() => {
     activeNodeIdRef.current = undefined;
@@ -136,10 +145,11 @@ export function useDiagnosticScan({
     setIsScanning(false);
     isScanningRef.current = false;
     setScanError(undefined);
+    setScanDurationMs(undefined);
   }, [resetLiveState]);
 
   const runScan = useCallback(
-    async (scenarioId?: MockScenarioId) => {
+    async (scenarioId?: MockScenarioId, metadata?: ScanRunMetadata) => {
       if (isScanningRef.current) {
         return undefined;
       }
@@ -150,8 +160,10 @@ export function useDiagnosticScan({
       isScanningRef.current = true;
       setIsScanning(true);
       setScanError(undefined);
+      setScanDurationMs(undefined);
       resetLiveState();
       setDisplayNodes(buildPendingNodes(scanResultRef.current.nodes));
+      const scanStartedAt = Date.now();
 
       let finalScan: ScanResult;
       try {
@@ -183,6 +195,25 @@ export function useDiagnosticScan({
                 return;
               }
 
+              if (progress.kind === "node-progressed" && progress.nodeId) {
+                activeNodeIdRef.current = progress.nodeId;
+                setActiveNodeId(progress.nodeId);
+                setDisplayNodes((currentNodes) =>
+                  currentNodes.map((node) =>
+                    node.id === progress.nodeId
+                      ? {
+                          ...node,
+                          status: "running",
+                          severity: "info",
+                          progressState: "running",
+                          summary: progress.message
+                        }
+                      : node
+                  )
+                );
+                return;
+              }
+
               if (progress.kind === "scan-finished") {
                 setDisplayNodes((currentNodes) =>
                   activeNodeIdRef.current
@@ -210,6 +241,7 @@ export function useDiagnosticScan({
           setIsScanning(false);
           isScanningRef.current = false;
           setScanError(message);
+          setScanDurationMs(undefined);
         }
         return undefined;
       }
@@ -222,7 +254,8 @@ export function useDiagnosticScan({
       setIsScanning(false);
       isScanningRef.current = false;
       setScanError(undefined);
-      onScanComplete?.(finalScan);
+      setScanDurationMs(Math.max(0, Date.now() - scanStartedAt));
+      onScanComplete?.(finalScan, metadata);
       return finalScan;
     },
     [adapter, onScanComplete, resetLiveState]
@@ -236,6 +269,8 @@ export function useDiagnosticScan({
     completedNodeIds,
     scanProgress,
     scanError,
+    scanDurationMs,
+    canStartScan,
     runScan,
     loadScan
   };

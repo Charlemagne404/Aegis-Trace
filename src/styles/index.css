@@ -120,6 +120,8 @@ input:focus-visible {
 }
 
 .app-panel {
+  position: relative;
+  isolation: isolate;
   background:
     linear-gradient(180deg, rgba(17, 27, 41, 0.94) 0%, rgba(12, 21, 32, 0.95) 100%);
   border: 1px solid var(--aegis-line-soft);
@@ -127,6 +129,78 @@ input:focus-visible {
     inset 0 1px 0 rgba(170, 192, 224, 0.02),
     0 18px 40px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(14px);
+}
+
+.app-main {
+  scrollbar-gutter: stable;
+}
+
+.dashboard-viewport > section {
+  flex-shrink: 0;
+}
+
+.app-main::-webkit-scrollbar {
+  width: 10px;
+}
+
+.app-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-main::-webkit-scrollbar-thumb {
+  border-width: 2px;
+  background: rgba(75, 98, 132, 0.58);
+}
+
+.timeline-panel {
+  background:
+    radial-gradient(circle at 50% -30%, rgba(75, 141, 255, 0.1), transparent 48%),
+    linear-gradient(180deg, rgba(17, 28, 44, 0.96) 0%, rgba(11, 20, 32, 0.97) 100%);
+}
+
+.timeline-panel-scanning {
+  border-color: rgba(85, 190, 255, 0.2);
+}
+
+.timeline-panel-scanning::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(76, 196, 255, 0.06), transparent);
+  content: "";
+  transform: translateX(-100%);
+  animation: timeline-panel-sweep 2.8s ease-in-out infinite;
+}
+
+.timeline-panel-scanning > * {
+  position: relative;
+  z-index: 1;
+}
+
+.timeline-scroll-shell {
+  scrollbar-color: rgba(75, 98, 132, 0.58) transparent;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+
+.timeline-scroll-shell::-webkit-scrollbar {
+  height: 7px;
+}
+
+.timeline-scroll-shell::-webkit-scrollbar-track {
+  background: rgba(7, 14, 24, 0.32);
+}
+
+.timeline-scroll-shell::-webkit-scrollbar-thumb {
+  border: 1px solid rgba(7, 14, 24, 0.7);
+  background: rgba(75, 98, 132, 0.58);
+}
+
+.scan-pulse-ring {
+  border: 1px solid rgba(103, 232, 249, 0.26);
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.18), transparent 70%);
+  animation: scan-pulse-ring 1.8s ease-out infinite;
 }
 
 .app-panel-soft {
@@ -258,6 +332,40 @@ input:focus-visible {
   }
 }
 
+@keyframes timeline-panel-sweep {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+
+  22%,
+  72% {
+    opacity: 1;
+  }
+
+  86% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes scan-pulse-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.84);
+  }
+
+  22% {
+    opacity: 0.85;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -269,14 +377,64 @@ input:focus-visible {
   }
 }
 
-@media (max-height: 880px) {
-  .dashboard-viewport {
-    zoom: 0.92;
+@media (max-width: 1023px) {
+  .app-main {
+    scrollbar-gutter: auto;
+  }
+
+  .timeline-scroll-shell {
+    scroll-snap-type: x proximity;
+  }
+
+  .timeline-scroll-shell .timeline-node {
+    scroll-snap-align: center;
   }
 }
 
-@media (max-height: 780px) {
+@media (max-height: 840px) and (min-width: 1024px) {
+  .app-main {
+    padding-block: 0.5rem;
+  }
+
   .dashboard-viewport {
-    zoom: 0.78;
+    gap: 0.5rem;
+  }
+
+  .scan-overview {
+    padding-block: 0.7rem;
+  }
+
+  .scan-overview .scan-status-icon {
+    height: 3.25rem;
+    width: 3.25rem;
+  }
+
+  .scan-overview h2 {
+    font-size: 1.2rem;
+  }
+
+  .scan-overview p {
+    line-height: 1.35;
+  }
+
+  .timeline-panel {
+    padding-block: 0.65rem;
+  }
+
+  .timeline-panel > div:first-child {
+    margin-bottom: 0.4rem;
+  }
+
+  .timeline-node {
+    min-height: 6.5rem;
+  }
+
+  .dashboard-viewport > div:last-child {
+    flex: 0 0 auto;
+    min-height: 18rem;
+  }
+
+  .dashboard-viewport > div:last-child > section {
+    min-height: 18rem;
   }
 }

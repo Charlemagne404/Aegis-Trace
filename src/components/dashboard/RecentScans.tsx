@@ -2,6 +2,7 @@ import { Clock3, History, RotateCcw, Trash2 } from "lucide-react";
 import type { ScanHistoryEntry } from "@/core/types";
 import { StatusPill } from "@/components/common/StatusPill";
 import { cn } from "@/utils/cn";
+import { platformLabel, scanPlatform } from "@/core/platform";
 
 type RecentScansProps = {
   entries: ScanHistoryEntry[];
@@ -30,7 +31,7 @@ export function RecentScans({
 }: RecentScansProps) {
   const getSourceLabel = (entry: ScanHistoryEntry) => {
     if (entry.scan.mode === "real") {
-      return "Live Windows scan";
+      return `Live ${platformLabel(scanPlatform(entry.scan))} scan`;
     }
 
     return entry.reason === "scenario" ? "Lab replay" : "Preview data";
@@ -41,7 +42,7 @@ export function RecentScans({
       <div className="flex items-start justify-between gap-3 border-b border-[color:var(--aegis-line-soft)] px-5 py-4">
         <div>
           <div className="flex items-center gap-2 text-white">
-            <History className="h-4.5 w-4.5 text-cyan-100" />
+            <History className="h-[18px] w-[18px] text-cyan-100" />
             <h2 className="text-[1rem] font-semibold tracking-[0.01em]">
               Local scan history
             </h2>

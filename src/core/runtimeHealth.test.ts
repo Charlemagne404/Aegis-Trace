@@ -14,7 +14,7 @@ describe("runtimeHealth helpers", () => {
     expect(preview.capabilities.canRunTimelineScans).toBe(true);
     expect(preview.capabilities.canRunFixes).toBe(false);
     expect(getScanDisabledReason(preview, false)).toBeUndefined();
-    expect(getFixDisabledReason(preview, false)).toContain("Windows desktop app");
+    expect(getFixDisabledReason(preview, false)).toContain("supported Aegis desktop app");
     expect(deriveWorkspaceMode(preview, false)).toBe("preview");
   });
 

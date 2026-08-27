@@ -1,4 +1,5 @@
 import type { EnvironmentInfo, MockScenarioId } from "@/core/types";
+import { isLivePlatform, platformLabel } from "@/core/platform";
 import { X } from "lucide-react";
 import { ScenarioSwitcher } from "@/components/settings/ScenarioSwitcher";
 
@@ -8,6 +9,7 @@ type SettingsPanelProps = {
   environmentInfo: EnvironmentInfo;
   rawOutput: boolean;
   scenarioId: MockScenarioId;
+  busy: boolean;
   onDemoModeChange: (value: boolean) => void;
   onRawOutputChange: (value: boolean) => void;
   onScenarioChange: (scenario: MockScenarioId) => void;
@@ -20,6 +22,7 @@ export function SettingsPanel({
   environmentInfo,
   rawOutput,
   scenarioId,
+  busy,
   onDemoModeChange,
   onRawOutputChange,
   onScenarioChange,
@@ -27,29 +30,36 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   if (!open) return null;
 
+  const platformName = platformLabel(environmentInfo.platform, environmentInfo.os);
+  const nativeDesktop = environmentInfo.isTauri && isLivePlatform(environmentInfo.platform);
   const runtimeLabel = demoMode
     ? "Diagnostic lab"
-    : environmentInfo.isWindows && environmentInfo.isTauri && environmentInfo.isAdmin
-      ? "Live Windows runtime"
-      : environmentInfo.isWindows && environmentInfo.isTauri
-        ? "Desktop runtime needs elevation"
+    : nativeDesktop && environmentInfo.isAdmin
+      ? `Live ${platformName} runtime`
+      : nativeDesktop
+        ? `${platformName} runtime needs elevation`
         : "Preview workspace";
   const runtimeDescription = demoMode
     ? "Replay known failure cases and simulated repairs without touching the current device."
-    : environmentInfo.isWindows && environmentInfo.isTauri && environmentInfo.isAdmin
+    : nativeDesktop && environmentInfo.isAdmin
       ? "Allowlisted scans and repair actions are available in this desktop session."
-      : environmentInfo.isWindows && environmentInfo.isTauri
-        ? "The desktop runtime is present, but Aegis is not elevated. Live fixes may be blocked until Windows launches it with administrator access."
-        : "Aegis stays explorable here with local preview data until the Windows Tauri runtime is available.";
+      : nativeDesktop
+        ? `The ${platformName} desktop runtime is present, but Aegis is not elevated. Administrator-only fixes may be blocked until the app is launched with elevated access.`
+        : `Aegis stays explorable here with local preview data until a supported desktop runtime is available.`;
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/72 p-4 backdrop-blur-xl">
-      <aside className="w-full max-w-2xl rounded-3xl border border-white/12 bg-[#0c1424] p-5 shadow-panel">
+    <div className="fixed inset-0 z-40 grid place-items-center overflow-y-auto bg-slate-950/72 p-4 backdrop-blur-xl sm:p-6">
+      <aside
+        className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-[22px] border border-white/12 bg-[#0c1424] p-5 shadow-panel sm:max-h-[calc(100dvh-3rem)] sm:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <h3 className="text-xl font-semibold tracking-tight text-white">Settings</h3>
             <p className="mt-1 text-sm text-slate-400">
-              Safety-first defaults. Live repair commands only run inside the Windows desktop app.
+              Safety-first defaults. Live repair commands only run inside supported Aegis desktop builds.
             </p>
           </div>
           <button
@@ -118,15 +128,16 @@ export function SettingsPanel({
               </span>
               <input
                 type="checkbox"
-                checked={demoMode}
-                onChange={(event) => onDemoModeChange(event.target.checked)}
-                className="mt-1 h-5 w-5 accent-cyan-300"
+              checked={demoMode}
+              onChange={(event) => onDemoModeChange(event.target.checked)}
+              disabled={busy}
+              className="mt-1 h-5 w-5 accent-cyan-300"
               />
             </label>
 
             {demoMode ? (
               <div className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-4">
-                <ScenarioSwitcher value={scenarioId} onChange={onScenarioChange} />
+              <ScenarioSwitcher value={scenarioId} onChange={onScenarioChange} disabled={busy} />
               </div>
             ) : null}
           </details>

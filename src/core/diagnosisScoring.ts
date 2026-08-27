@@ -92,7 +92,7 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       id: "healthy",
       title: "Everything looks good",
       summary:
-        "The full connection chain is responding. Wi-Fi, gateway, internet, DNS, Windows status, and app-layer checks all passed.",
+        "The full connection chain is responding. Wi-Fi, gateway, internet, DNS, operating-system status, and app-layer checks all passed.",
       confidence: 96,
       severity: "info",
       fixes: []
@@ -104,7 +104,7 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       id: "no-wifi-adapter",
       title: "No usable Wi-Fi adapter detected",
       summary:
-        "Windows is not reporting an enabled wireless adapter. The connection cannot proceed until the adapter or driver is available.",
+        "The operating system is not reporting an enabled wireless adapter. The connection cannot proceed until the adapter or driver is available.",
       confidence: 94,
       severity: "high",
       primaryFailedNodeId: "adapter",
@@ -115,9 +115,9 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
   if (wifi?.status === "failed" && hasEvidence(wifi, "WlanSvc")) {
     return buildDiagnosis({
       id: "wlan-service-stopped",
-      title: "Windows Wi-Fi service is not running",
+      title: "Wi-Fi management is not running",
       summary:
-        "The wireless adapter is present, but the Windows service that manages Wi-Fi connections is stopped.",
+        "The wireless adapter is present, but the operating-system service that manages Wi-Fi connections is stopped.",
       confidence: 93,
       severity: "high",
       primaryFailedNodeId: "wifi",
@@ -130,7 +130,7 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       id: "dhcp-failure",
       title: "Connected to Wi-Fi, but no valid IP address",
       summary:
-        "The Wi-Fi link is established, but Windows did not receive a usable IP address from the network. This commonly points to DHCP or router configuration.",
+        "The Wi-Fi link is established, but the operating system did not receive a usable IP address from the network. This commonly points to DHCP or router configuration.",
       confidence: hasEvidence(ip, "169.254") ? 95 : 88,
       severity: "high",
       primaryFailedNodeId: "ip",
@@ -143,7 +143,7 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       id: "gateway-unreachable",
       title: "Connected locally, but router is unreachable",
       summary:
-        "Windows has an IP address and gateway route, but the router is not responding. The issue is likely between the device and local network gateway.",
+        "The device has an IP address and gateway route, but the router is not responding. The issue is likely between the device and local network gateway.",
       confidence: 86,
       severity: "high",
       primaryFailedNodeId: "gateway",
@@ -206,9 +206,9 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
   ) {
     return buildDiagnosis({
       id: "windows-false-negative",
-      title: "Windows may be incorrectly reporting no internet",
+      title: "The operating system may be incorrectly reporting no internet",
       summary:
-        "Independent internet and DNS tests pass, but Windows still reports limited connectivity. This is likely an operating-system status mismatch.",
+        "Independent internet and DNS tests pass, but the operating system still reports limited connectivity. This is likely an operating-system status mismatch.",
       confidence: 69,
       severity: "medium",
       primaryFailedNodeId: "windows",

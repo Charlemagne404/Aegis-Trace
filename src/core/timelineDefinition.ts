@@ -33,10 +33,10 @@ export const TIMELINE_DEFINITION: TimelineNodeDefinition[] = [
   {
     id: "wifi",
     label: "Wi-Fi",
-    technicalLabel: "Wireless service",
+    technicalLabel: "Wireless interface",
     icon: "wifi",
     checks: [
-      "WLAN AutoConfig service running",
+      "Wireless management available",
       "Wireless interface available",
       "Interface connection state checked",
       "Nearby networks visibility checked"
@@ -45,7 +45,7 @@ export const TIMELINE_DEFINITION: TimelineNodeDefinition[] = [
   {
     id: "profile",
     label: "Profile",
-    technicalLabel: "Saved WLAN profile",
+    technicalLabel: "Saved wireless profile",
     icon: "id-card",
     checks: [
       "Current SSID detected",
@@ -101,11 +101,11 @@ export const TIMELINE_DEFINITION: TimelineNodeDefinition[] = [
   },
   {
     id: "windows",
-    label: "Windows Status",
-    technicalLabel: "NCSI and OS profile",
+    label: "OS Status",
+    technicalLabel: "Operating-system connectivity",
     icon: "badge-check",
     checks: [
-      "Windows connectivity profile checked",
+      "OS connectivity status checked",
       "Proxy configuration reviewed",
       "Captive portal suspicion reviewed"
     ]

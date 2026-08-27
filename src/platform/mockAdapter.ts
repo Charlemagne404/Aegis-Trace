@@ -1,6 +1,7 @@
 import { createMockScanResult } from "@/core/mockData";
 import { createPreviewRuntimeHealth } from "@/core/runtimeHealth";
 import { TIMELINE_DEFINITION } from "@/core/timelineDefinition";
+import { getBrowserEnvironmentInfo, getBrowserSystemMetrics } from "./browserEnvironment";
 import { isAllowlistedFixId } from "@/core/fixRegistry";
 import {
   buildHtmlReport,
@@ -10,7 +11,6 @@ import {
   downloadTextFile,
   reportFilename
 } from "@/core/reportExport";
-import packageInfo from "../../package.json";
 import type { PlatformAdapter } from "./platformAdapter";
 
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -37,7 +37,18 @@ export const mockAdapter: PlatformAdapter = {
         totalNodes: TIMELINE_DEFINITION.length,
         message: `Checking ${node.label.toLowerCase()} in the live timeline...`
       });
-      await wait(260);
+      await wait(150);
+      onProgress?.({
+        runId,
+        kind: "node-progressed",
+        nodeId: node.id,
+        nodeLabel: node.label,
+        nodeIndex: index,
+        nodeStatus: "running",
+        totalNodes: TIMELINE_DEFINITION.length,
+        message: `Reading ${node.label.toLowerCase()} evidence...`
+      });
+      await wait(110);
       onProgress?.({
         runId,
         kind: "node-completed",
@@ -99,38 +110,12 @@ export const mockAdapter: PlatformAdapter = {
     return filename;
   },
   async getEnvironmentInfo() {
-    return {
-      os: navigator.platform || "Unknown",
-      hostname: "Preview workspace",
-      appVersion: packageInfo.version,
-      isAdmin: false,
-      isWindows: navigator.userAgent.toLowerCase().includes("windows"),
-      isTauri: false
-    };
+    return getBrowserEnvironmentInfo();
   },
   async getRuntimeHealth() {
-    return createPreviewRuntimeHealth({
-      isWindows: navigator.userAgent.toLowerCase().includes("windows"),
-      isTauri: false
-    });
+    return createPreviewRuntimeHealth(getBrowserEnvironmentInfo());
   },
   async getSystemMetrics() {
-    const memory = "memory" in performance ? (performance as Performance & {
-      memory?: {
-        usedJSHeapSize: number;
-        jsHeapSizeLimit: number;
-      };
-    }).memory : undefined;
-
-    return {
-      collectedAt: new Date().toISOString(),
-      source: "browser",
-      uptimeSeconds: Math.round(performance.now() / 1000),
-      cpuUsagePercent: null,
-      memoryUsedBytes: memory?.usedJSHeapSize ?? null,
-      memoryTotalBytes: memory?.jsHeapSizeLimit ?? null,
-      networkReceivedBytes: null,
-      networkTransmittedBytes: null
-    };
+    return getBrowserSystemMetrics();
   }
 };

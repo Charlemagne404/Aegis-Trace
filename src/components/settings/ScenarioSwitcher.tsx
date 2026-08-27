@@ -5,12 +5,14 @@ type ScenarioSwitcherProps = {
   value: MockScenarioId;
   onChange: (scenario: MockScenarioId) => void;
   compact?: boolean;
+  disabled?: boolean;
 };
 
 export function ScenarioSwitcher({
   value,
   onChange,
-  compact = false
+  compact = false,
+  disabled = false
 }: ScenarioSwitcherProps) {
   const selected = MOCK_SCENARIOS.find((scenario) => scenario.id === value);
 
@@ -21,7 +23,8 @@ export function ScenarioSwitcher({
         <select
           value={value}
           onChange={(event) => onChange(event.target.value as MockScenarioId)}
-          className="min-w-[10rem] rounded-[8px] border border-transparent bg-transparent pr-6 text-[13px] font-medium text-slate-100 outline-none transition focus:border-[#4b8dff]/60"
+          disabled={disabled}
+          className="min-w-[10rem] rounded-[8px] border border-transparent bg-transparent pr-6 text-[13px] font-medium text-slate-100 outline-none transition focus:border-[#4b8dff]/60 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {MOCK_SCENARIOS.map((scenario) => (
             <option key={scenario.id} value={scenario.id}>
@@ -39,7 +42,8 @@ export function ScenarioSwitcher({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as MockScenarioId)}
-        className="min-w-44 rounded-[10px] border border-[color:var(--aegis-line-soft)] bg-[rgba(118,146,188,0.04)] px-3 py-2 text-[13px] font-medium text-slate-100 outline-none transition focus:border-[#4b8dff]/60 focus:ring-2 focus:ring-[#4b8dff]/15"
+        disabled={disabled}
+        className="min-w-44 rounded-[10px] border border-[color:var(--aegis-line-soft)] bg-[rgba(118,146,188,0.04)] px-3 py-2 text-[13px] font-medium text-slate-100 outline-none transition focus:border-[#4b8dff]/60 focus:ring-2 focus:ring-[#4b8dff]/15 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {MOCK_SCENARIOS.map((scenario) => (
           <option key={scenario.id} value={scenario.id}>

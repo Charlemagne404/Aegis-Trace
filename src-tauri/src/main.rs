@@ -2,6 +2,10 @@
 
 mod commands;
 mod diagnostics;
+mod platform;
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[cfg(target_os = "windows")]
 use std::process::Command;

@@ -1,3 +1,5 @@
+#![cfg_attr(not(target_os = "windows"), allow(dead_code))]
+
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -10,9 +12,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Networks, System, MINIMUM_CPU_UPDATE_INTERVAL};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum DiagnosticStatus {
+pub(crate) enum DiagnosticStatus {
     Ok,
     Warning,
     Failed,
@@ -24,7 +26,7 @@ pub enum DiagnosticStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Severity {
+pub(crate) enum Severity {
     Info,
     Low,
     Medium,
@@ -34,7 +36,7 @@ pub enum Severity {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum FixSafety {
+pub(crate) enum FixSafety {
     Safe,
     Moderate,
     Aggressive,
@@ -42,7 +44,7 @@ pub enum FixSafety {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EvidenceItem {
+pub(crate) struct EvidenceItem {
     pub id: String,
     pub label: String,
     pub value: String,
@@ -52,7 +54,7 @@ pub struct EvidenceItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FixAction {
+pub(crate) struct FixAction {
     pub id: String,
     pub title: String,
     pub description: String,
@@ -65,7 +67,7 @@ pub struct FixAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DiagnosticNode {
+pub(crate) struct DiagnosticNode {
     pub id: String,
     pub label: String,
     pub technical_label: Option<String>,
@@ -83,7 +85,7 @@ pub struct DiagnosticNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OverallDiagnosis {
+pub(crate) struct OverallDiagnosis {
     pub id: String,
     pub title: String,
     pub summary: String,
@@ -96,6 +98,7 @@ pub struct OverallDiagnosis {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Environment {
+    pub platform: String,
     pub os: String,
     pub hostname: Option<String>,
     pub app_version: String,
@@ -105,6 +108,7 @@ pub struct Environment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvironmentInfo {
+    pub platform: String,
     pub os: String,
     pub hostname: Option<String>,
     pub app_version: String,
@@ -115,7 +119,7 @@ pub struct EnvironmentInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeIssue {
+pub(crate) struct RuntimeIssue {
     pub id: String,
     pub severity: String,
     pub title: String,
@@ -124,7 +128,7 @@ pub struct RuntimeIssue {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeCapabilities {
+pub(crate) struct RuntimeCapabilities {
     pub can_run_timeline_scans: bool,
     pub can_run_live_scans: bool,
     pub can_run_fixes: bool,
@@ -134,7 +138,7 @@ pub struct RuntimeCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RuntimeHealth {
+pub(crate) struct RuntimeHealth {
     pub checked_at: String,
     pub state: String,
     pub summary: String,
@@ -145,7 +149,7 @@ pub struct RuntimeHealth {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SystemMetrics {
+pub(crate) struct SystemMetrics {
     pub collected_at: String,
     pub source: String,
     pub uptime_seconds: Option<u64>,
@@ -158,7 +162,7 @@ pub struct SystemMetrics {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanResult {
+pub(crate) struct ScanResult {
     pub id: String,
     pub created_at: String,
     pub mode: String,
@@ -170,7 +174,7 @@ pub struct ScanResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScanProgressEvent {
+pub(crate) struct ScanProgressEvent {
     pub run_id: String,
     pub kind: String,
     pub node_id: Option<String>,
@@ -184,7 +188,7 @@ pub struct ScanProgressEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FixExecutionResult {
+pub(crate) struct FixExecutionResult {
     pub fix_id: String,
     pub status: String,
     pub title: String,
@@ -196,7 +200,7 @@ pub struct FixExecutionResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FixConfirmation {
+pub(crate) struct FixConfirmation {
     pub acknowledged: bool,
     pub typed_phrase: Option<String>,
 }
@@ -1005,6 +1009,10 @@ fn endpoint_success_count(facts: &[EndpointFact]) -> usize {
         .count()
 }
 
+fn endpoint_tcp_success_count(facts: &[EndpointFact]) -> usize {
+    facts.iter().filter(|fact| fact.tcp_succeeded).count()
+}
+
 fn classify_endpoint_probe_status(
     upstream_ready: bool,
     success_count: usize,
@@ -1025,6 +1033,30 @@ fn classify_endpoint_probe_status(
     }
 }
 
+fn classify_gateway_status(
+    ip_valid: bool,
+    gateway_present: bool,
+    route_present: bool,
+    route_inventory_known: bool,
+    gateway_reachable: Option<bool>,
+    gateway_neighbor_present: bool,
+    upstream_connectivity_confirmed: bool,
+) -> DiagnosticStatus {
+    if !ip_valid {
+        DiagnosticStatus::Skipped
+    } else if !route_inventory_known {
+        DiagnosticStatus::Unknown
+    } else if !gateway_present || !route_present {
+        DiagnosticStatus::Failed
+    } else if gateway_reachable == Some(true) || upstream_connectivity_confirmed {
+        DiagnosticStatus::Ok
+    } else if gateway_neighbor_present {
+        DiagnosticStatus::Warning
+    } else {
+        DiagnosticStatus::Failed
+    }
+}
+
 fn classify_dns_status(
     upstream_status: DiagnosticStatus,
     local_ok: bool,
@@ -1038,16 +1070,44 @@ fn classify_dns_status(
         DiagnosticStatus::Failed | DiagnosticStatus::Skipped
     ) {
         DiagnosticStatus::Skipped
-    } else if local_ok && public_ok {
-        DiagnosticStatus::Ok
     } else if local_ok || hostname_resolution_confirmed {
-        DiagnosticStatus::Warning
+        DiagnosticStatus::Ok
     } else if public_ok {
         DiagnosticStatus::Failed
     } else if local_signal || public_signal {
         DiagnosticStatus::Warning
     } else {
         DiagnosticStatus::Warning
+    }
+}
+
+fn classify_windows_status(
+    captive_portal_suspected: bool,
+    windows_false_negative: bool,
+    proxy_configured: bool,
+    apps_status: DiagnosticStatus,
+    wifi_connected: bool,
+    wlan_event_count: usize,
+    dns_ok: bool,
+    dns_event_count: usize,
+    profile_present: bool,
+    nla_running: bool,
+) -> DiagnosticStatus {
+    if captive_portal_suspected
+        || windows_false_negative
+        || (proxy_configured
+            && matches!(
+                apps_status,
+                DiagnosticStatus::Failed | DiagnosticStatus::Warning
+            ))
+        || (!wifi_connected && wlan_event_count > 0)
+        || (!dns_ok && dns_event_count > 0)
+    {
+        DiagnosticStatus::Warning
+    } else if profile_present || nla_running {
+        DiagnosticStatus::Ok
+    } else {
+        DiagnosticStatus::Unknown
     }
 }
 
@@ -1108,6 +1168,14 @@ fn failed_command_output(label: &str, error: impl ToString) -> CommandOutput {
     CommandOutput {
         stdout: String::new(),
         stderr: format!("{label}: {}", error.to_string()),
+        success: false,
+    }
+}
+
+fn skipped_command_output(label: &str, reason: &str) -> CommandOutput {
+    CommandOutput {
+        stdout: String::new(),
+        stderr: format!("{label}: probe skipped: {reason}"),
         success: false,
     }
 }
@@ -1276,7 +1344,7 @@ fn scan_progress_event(
                 "gateway" => "Gateway",
                 "internet" => "Internet",
                 "dns" => "DNS",
-                "windows" => "Windows Status",
+                "windows" => "OS Status",
                 "apps" => "Apps",
                 _ => id,
             }
@@ -1338,6 +1406,27 @@ fn emit_node_completed<F>(
     emit_progress(scan_progress_event(
         run_id,
         "node-completed",
+        Some(node_id),
+        Some(node_index),
+        Some(node_status),
+        Some(node_summary),
+        node_summary,
+    ));
+}
+
+fn emit_node_checkpoint<F>(
+    emit_progress: &mut F,
+    run_id: &str,
+    node_id: &str,
+    node_index: usize,
+    node_status: DiagnosticStatus,
+    node_summary: &str,
+) where
+    F: FnMut(ScanProgressEvent),
+{
+    emit_progress(scan_progress_event(
+        run_id,
+        "node-progressed",
         Some(node_id),
         Some(node_index),
         Some(node_status),
@@ -1430,6 +1519,54 @@ fn primary_ip_fact<'a>(ip_facts: &'a [IpFact], adapters: &[AdapterFact]) -> Opti
         .or_else(|| ip_facts.first())
 }
 
+fn primary_ip_fact_for_routes<'a>(
+    ip_facts: &'a [IpFact],
+    adapters: &[AdapterFact],
+    routes: &[RouteFact],
+) -> Option<&'a IpFact> {
+    let default_route = routes
+        .iter()
+        .filter(|route| {
+            route
+                .destination_prefix
+                .as_deref()
+                .map(|prefix| prefix == "0.0.0.0/0")
+                .unwrap_or(false)
+        })
+        .min_by_key(|route| {
+            (
+                if route
+                    .state
+                    .as_deref()
+                    .map(|state| state.eq_ignore_ascii_case("active"))
+                    .unwrap_or(false)
+                {
+                    0
+                } else {
+                    1
+                },
+                route.route_metric.unwrap_or(i64::MAX),
+            )
+        });
+
+    let route_match = default_route.and_then(|route| {
+        ip_facts.iter().find(|fact| {
+            let matches_index =
+                route.interface_index.is_some() && fact.interface_index == route.interface_index;
+            let matches_alias = route
+                .interface_alias
+                .as_deref()
+                .zip(fact.interface_alias.as_deref())
+                .map(|(route_alias, fact_alias)| route_alias.eq_ignore_ascii_case(fact_alias))
+                .unwrap_or(false);
+
+            matches_index || matches_alias
+        })
+    });
+
+    route_match.or_else(|| primary_ip_fact(ip_facts, adapters))
+}
+
 fn primary_adapter<'a>(
     adapters: &'a [AdapterFact],
     preferred_interface_index: Option<i64>,
@@ -1512,7 +1649,7 @@ fn node_checks(id: &str) -> Vec<&'static str> {
             "Driver status checked",
         ],
         "wifi" => vec![
-            "WLAN AutoConfig service running",
+            "Wireless management available",
             "Wireless interface available",
             "Interface connection state checked",
             "Nearby networks visibility checked",
@@ -1565,7 +1702,7 @@ fn simple_mock_scan() -> ScanResult {
             "Device",
             "monitor",
             DiagnosticStatus::Ok,
-            "Aegis is running outside Windows.",
+            "Aegis is running without a native diagnostics adapter.",
             "Mock scenarios remain available so the full timeline can still be previewed.",
             node_checks("device"),
             vec![
@@ -1581,7 +1718,7 @@ fn simple_mock_scan() -> ScanResult {
                     "Backend mode",
                     "Mock fallback",
                     DiagnosticStatus::Warning,
-                    Some("Real Windows diagnostics only run in the Windows Tauri build."),
+                    Some("Native live diagnostics are currently available in the Windows and macOS Tauri builds."),
                 ),
             ],
             vec![],
@@ -1593,12 +1730,12 @@ fn simple_mock_scan() -> ScanResult {
             "network",
             DiagnosticStatus::Skipped,
             "Real adapter inventory is unavailable here.",
-            "Use demo mode or run the Windows build to inspect adapter state.",
+            "Use demo mode or run a supported Windows or macOS build to inspect adapter state.",
             node_checks("adapter"),
             vec![evidence(
                 "platform",
                 "Platform",
-                "Non-Windows fallback",
+                "Unsupported native platform fallback",
                 DiagnosticStatus::Unknown,
                 None,
             )],
@@ -1615,7 +1752,7 @@ fn simple_mock_scan() -> ScanResult {
             node_checks("wifi"),
             vec![evidence(
                 "service",
-                "WLAN AutoConfig",
+                "Wireless management",
                 "Not queried",
                 DiagnosticStatus::Unknown,
                 None,
@@ -1629,7 +1766,7 @@ fn simple_mock_scan() -> ScanResult {
             "id-card",
             DiagnosticStatus::Skipped,
             "Wi-Fi profile checks are unavailable here.",
-            "Aegis never requests saved passwords, even on Windows.",
+            "Aegis never requests or exports saved Wi-Fi passwords.",
             node_checks("profile"),
             vec![evidence(
                 "profile",
@@ -1715,7 +1852,7 @@ fn simple_mock_scan() -> ScanResult {
         ),
         node(
             "windows",
-            "Windows Status",
+            "OS Status",
             "badge-check",
             DiagnosticStatus::Skipped,
             "Windows profile and proxy checks are unavailable here.",
@@ -1759,7 +1896,7 @@ fn simple_mock_scan() -> ScanResult {
         diagnosis: OverallDiagnosis {
             id: "non-windows-fallback".to_string(),
             title: "Demo mode active".to_string(),
-            summary: "Real Windows diagnostics are not available on this platform. The full mock timeline remains available.".to_string(),
+            summary: "Live diagnostics are not available on this platform yet. The full mock timeline remains available.".to_string(),
             confidence: 100,
             severity: Severity::Info,
             primary_failed_node_id: None,
@@ -1767,6 +1904,7 @@ fn simple_mock_scan() -> ScanResult {
         },
         nodes,
         environment: Environment {
+            platform: std::env::consts::OS.to_string(),
             os: std::env::consts::OS.to_string(),
             hostname: hostname(),
             app_version: "0.1.0".to_string(),
@@ -1801,7 +1939,7 @@ where
         "Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber,LastBootUpTime | ConvertTo-Json -Depth 4 -Compress",
         "os",
     );
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "device",
@@ -1835,7 +1973,7 @@ where
     let live_adapters = parse_adapter_facts(&adapter_out.stdout);
     let live_adapter_inventory_known = !live_adapters.is_empty() || adapter_out.success;
     let live_any_up_adapter = live_adapters.iter().any(adapter_is_up);
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "adapter",
@@ -1888,7 +2026,7 @@ where
     } else {
         DiagnosticStatus::Unknown
     };
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "wifi",
@@ -1914,6 +2052,8 @@ where
     );
     let wlan_profiles_out = powershell_capture("netsh wlan show profiles", "wifi profiles");
     let live_saved_profiles = parse_wlan_profiles(&wlan_profiles_out.stdout);
+    let live_saved_profile_inventory_known =
+        wlan_profiles_out.success || !wlan_profiles_out.stdout.trim().is_empty();
     let live_wifi_profile_name = live_wifi_fact
         .profile
         .clone()
@@ -1921,8 +2061,8 @@ where
     let live_current_profile_saved = live_wifi_profile_name
         .as_ref()
         .map(|name| {
-            if live_saved_profiles.is_empty() {
-                true
+            if !live_saved_profile_inventory_known {
+                false
             } else {
                 live_saved_profiles
                     .iter()
@@ -1934,10 +2074,12 @@ where
         DiagnosticStatus::Skipped
     } else if live_wifi_profile_name.is_some() && live_current_profile_saved {
         DiagnosticStatus::Ok
+    } else if !live_saved_profile_inventory_known {
+        DiagnosticStatus::Unknown
     } else {
         DiagnosticStatus::Warning
     };
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "profile",
@@ -1964,9 +2106,15 @@ where
         "Get-NetIPInterface -AddressFamily IPv4 | Select-Object InterfaceAlias,InterfaceIndex,Dhcp,ConnectionState,InterfaceMetric | ConvertTo-Json -Depth 4 -Compress",
         "ip interface",
     );
+    let route_out = powershell_capture(
+        "Get-NetRoute -AddressFamily IPv4 | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } | Sort-Object RouteMetric | Select-Object InterfaceAlias,InterfaceIndex,DestinationPrefix,NextHop,RouteMetric,State | ConvertTo-Json -Depth 4 -Compress",
+        "routes",
+    );
     let live_ip_facts = parse_ip_facts(&ip_config_out.stdout);
+    let live_ip_inventory_known = ip_config_out.success || !ip_config_out.stdout.trim().is_empty();
     let live_ip_interfaces = parse_ip_interface_facts(&ip_interface_out.stdout);
-    let live_primary_ip = primary_ip_fact(&live_ip_facts, &live_adapters);
+    let live_routes = parse_route_facts(&route_out.stdout);
+    let live_primary_ip = primary_ip_fact_for_routes(&live_ip_facts, &live_adapters, &live_routes);
     let live_primary_ip_interface = primary_ip_interface(
         &live_ip_interfaces,
         live_primary_ip.and_then(|fact| fact.interface_index),
@@ -1979,6 +2127,9 @@ where
     let live_active_adapter = live_primary_adapter
         .map(|adapter| adapter_is_up(adapter))
         .unwrap_or(false);
+    let live_wifi_path_relevant = live_primary_adapter
+        .map(adapter_is_wireless)
+        .unwrap_or(live_has_wifi_adapter);
     let live_ipv4_address = live_primary_ip.and_then(|fact| fact.ipv4_address.clone());
     let live_has_apipa = live_ipv4_address
         .as_deref()
@@ -1988,12 +2139,14 @@ where
     let _live_dhcp_mode = live_primary_ip_interface.and_then(|fact| fact.dhcp.clone());
     let live_ip_status = if live_active_adapter && live_ip_valid {
         DiagnosticStatus::Ok
-    } else if live_active_adapter {
+    } else if live_active_adapter && live_ip_inventory_known {
         DiagnosticStatus::Failed
+    } else if live_active_adapter {
+        DiagnosticStatus::Unknown
     } else {
         DiagnosticStatus::Skipped
     };
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "ip",
@@ -2016,10 +2169,6 @@ where
         5,
         "Testing the local gateway path and default route...",
     );
-    let route_out = powershell_capture(
-        "Get-NetRoute -AddressFamily IPv4 | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } | Sort-Object RouteMetric | Select-Object InterfaceAlias,InterfaceIndex,DestinationPrefix,NextHop,RouteMetric,State | ConvertTo-Json -Depth 4 -Compress",
-        "routes",
-    );
     let profile_out = powershell_capture(
         "Get-NetConnectionProfile | Select-Object Name,InterfaceAlias,InterfaceIndex,NetworkCategory,IPv4Connectivity,IPv6Connectivity | ConvertTo-Json -Depth 4 -Compress",
         "profiles",
@@ -2029,7 +2178,6 @@ where
         "Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings' | Select-Object ProxyEnable,ProxyServer,AutoConfigURL,AutoDetect | ConvertTo-Json -Depth 3 -Compress",
         "user proxy",
     );
-    let live_routes = parse_route_facts(&route_out.stdout);
     let live_windows_profiles = parse_windows_profile_facts(&profile_out.stdout);
     let live_primary_profile = primary_windows_profile(
         &live_windows_profiles,
@@ -2042,6 +2190,7 @@ where
         live_primary_ip.and_then(|fact| fact.interface_index),
         live_gateway.as_deref(),
     );
+    let live_route_inventory_known = route_out.success || !route_out.stdout.trim().is_empty();
     let live_gateway_test_out = match live_gateway.as_deref() {
         Some(next_hop) if live_ip_valid => Some(powershell_capture_with_retry(
             &format!(
@@ -2082,6 +2231,8 @@ where
     );
     let live_gateway_status = if !live_ip_valid {
         DiagnosticStatus::Skipped
+    } else if !live_route_inventory_known {
+        DiagnosticStatus::Unknown
     } else if live_gateway.is_none() || live_primary_route.is_none() {
         DiagnosticStatus::Failed
     } else if live_gateway_reachable == Some(true) {
@@ -2091,7 +2242,7 @@ where
     } else {
         DiagnosticStatus::Warning
     };
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "gateway",
@@ -2113,21 +2264,35 @@ where
         6,
         "Probing public internet reachability across multiple endpoints...",
     );
-    let internet_primary_out = powershell_capture_with_retry(
-        "Test-NetConnection 1.1.1.1 -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
-        "internet primary",
-        2,
-    );
-    let internet_secondary_out = powershell_capture_with_retry(
-        "Test-NetConnection 8.8.8.8 -Port 53 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
-        "internet secondary",
-        2,
-    );
-    let internet_tertiary_out = powershell_capture_with_retry(
-        "Test-NetConnection 9.9.9.9 -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
-        "internet tertiary",
-        2,
-    );
+    let internet_probes_ready =
+        live_ip_valid && live_gateway.is_some() && live_primary_route.is_some();
+    let internet_primary_out = if internet_probes_ready {
+        powershell_capture_with_retry(
+            "Test-NetConnection 1.1.1.1 -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
+            "internet primary",
+            2,
+        )
+    } else {
+        skipped_command_output("internet primary", "no usable local route")
+    };
+    let internet_secondary_out = if internet_probes_ready {
+        powershell_capture_with_retry(
+            "Test-NetConnection 8.8.8.8 -Port 53 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
+            "internet secondary",
+            2,
+        )
+    } else {
+        skipped_command_output("internet secondary", "no usable local route")
+    };
+    let internet_tertiary_out = if internet_probes_ready {
+        powershell_capture_with_retry(
+            "Test-NetConnection 9.9.9.9 -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
+            "internet tertiary",
+            2,
+        )
+    } else {
+        skipped_command_output("internet tertiary", "no usable local route")
+    };
     let live_internet_primary = parse_endpoint_fact(&internet_primary_out.stdout);
     let live_internet_secondary = parse_endpoint_fact(&internet_secondary_out.stdout);
     let live_internet_tertiary = parse_endpoint_fact(&internet_tertiary_out.stdout);
@@ -2139,13 +2304,13 @@ where
     let live_internet_endpoint_successes = endpoint_success_count(&live_internet_facts);
     let live_internet_signal_count = endpoint_signal_count(&live_internet_facts);
     let live_internet_status = classify_endpoint_probe_status(
-        live_ip_valid && live_gateway.is_some(),
+        internet_probes_ready,
         live_internet_endpoint_successes,
         live_internet_signal_count,
         live_internet_facts.len(),
         2,
     );
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "internet",
@@ -2176,16 +2341,29 @@ where
         7,
         "Resolving hostnames through the local DNS path and a public comparison...",
     );
-    let dns_out = powershell_capture_with_retry(
-        "try { Resolve-DnsName example.com,openai.com -Type A -ErrorAction Stop | Select-Object -First 6 Name,Type,IPAddress,Section | ConvertTo-Json -Depth 4 -Compress } catch { $_ | Out-String; exit 1 }",
-        "dns local",
-        2,
-    );
-    let dns_public_out = powershell_capture_with_retry(
-        "try { Resolve-DnsName example.com,openai.com -Server 1.1.1.1 -Type A -ErrorAction Stop | Select-Object -First 6 Name,Type,IPAddress,Section | ConvertTo-Json -Depth 4 -Compress } catch { $_ | Out-String; exit 1 }",
-        "dns public",
-        2,
-    );
+    let dns_probes_ready = internet_probes_ready
+        && !matches!(
+            live_internet_status,
+            DiagnosticStatus::Failed | DiagnosticStatus::Skipped
+        );
+    let dns_out = if dns_probes_ready {
+        powershell_capture_with_retry(
+            "try { Resolve-DnsName example.com,openai.com -Type A -ErrorAction Stop | Select-Object -First 6 Name,Type,IPAddress,Section | ConvertTo-Json -Depth 4 -Compress } catch { $_ | Out-String; exit 1 }",
+            "dns local",
+            2,
+        )
+    } else {
+        skipped_command_output("dns local", "internet path is unavailable")
+    };
+    let dns_public_out = if dns_probes_ready {
+        powershell_capture_with_retry(
+            "try { Resolve-DnsName example.com,openai.com -Server 1.1.1.1 -Type A -ErrorAction Stop | Select-Object -First 6 Name,Type,IPAddress,Section | ConvertTo-Json -Depth 4 -Compress } catch { $_ | Out-String; exit 1 }",
+            "dns public",
+            2,
+        )
+    } else {
+        skipped_command_output("dns public", "internet path is unavailable")
+    };
     let live_dns_ok = dns_probe_succeeded(&dns_out);
     let live_dns_public_ok = dns_probe_succeeded(&dns_public_out);
     let live_dns_status = classify_dns_status(
@@ -2196,7 +2374,7 @@ where
         dns_probe_has_signal(&dns_public_out),
         false,
     );
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "dns",
@@ -2223,38 +2401,43 @@ where
         8,
         "Checking Windows connectivity state, proxy settings, and portal signals...",
     );
-    let http_probe_out = powershell_capture_with_retry(
-        r#"try {
-            $response = Invoke-WebRequest 'http://www.msftconnecttest.com/connecttest.txt' -MaximumRedirection 0 -TimeoutSec 7 -UseBasicParsing -ErrorAction Stop
-            [pscustomobject]@{
-                Success = $true
-                StatusCode = [int]$response.StatusCode
-                FinalUri = $response.BaseResponse.ResponseUri.AbsoluteUri
-                Location = $response.Headers.Location
-                Snippet = (($response.Content | Out-String).Trim())
-                Error = $null
-            } | ConvertTo-Json -Depth 4 -Compress
-        } catch {
-            $statusCode = $null
-            $location = $null
-            $finalUri = $null
-            if ($_.Exception.Response) {
-                try { $statusCode = [int]$_.Exception.Response.StatusCode.value__ } catch {}
-                try { $location = $_.Exception.Response.Headers['Location'] } catch {}
-                try { $finalUri = $_.Exception.Response.ResponseUri.AbsoluteUri } catch {}
-            }
-            [pscustomobject]@{
-                Success = $false
-                StatusCode = $statusCode
-                FinalUri = $finalUri
-                Location = $location
-                Snippet = $_.ErrorDetails.Message
-                Error = $_.Exception.Message
-            } | ConvertTo-Json -Depth 4 -Compress
-        }"#,
-        "http probe",
-        2,
-    );
+    let http_probe_ready = dns_probes_ready && (live_dns_ok || live_dns_public_ok);
+    let http_probe_out = if http_probe_ready {
+        powershell_capture_with_retry(
+            r#"try {
+                $response = Invoke-WebRequest 'http://www.msftconnecttest.com/connecttest.txt' -MaximumRedirection 0 -TimeoutSec 7 -UseBasicParsing -ErrorAction Stop
+                [pscustomobject]@{
+                    Success = $true
+                    StatusCode = [int]$response.StatusCode
+                    FinalUri = $response.BaseResponse.ResponseUri.AbsoluteUri
+                    Location = $response.Headers.Location
+                    Snippet = (($response.Content | Out-String).Trim())
+                    Error = $null
+                } | ConvertTo-Json -Depth 4 -Compress
+            } catch {
+                $statusCode = $null
+                $location = $null
+                $finalUri = $null
+                if ($_.Exception.Response) {
+                    try { $statusCode = [int]$_.Exception.Response.StatusCode.value__ } catch {}
+                    try { $location = $_.Exception.Response.Headers['Location'] } catch {}
+                    try { $finalUri = $_.Exception.Response.ResponseUri.AbsoluteUri } catch {}
+                }
+                [pscustomobject]@{
+                    Success = $false
+                    StatusCode = $statusCode
+                    FinalUri = $finalUri
+                    Location = $location
+                    Snippet = $_.ErrorDetails.Message
+                    Error = $_.Exception.Message
+                } | ConvertTo-Json -Depth 4 -Compress
+            }"#,
+            "http probe",
+            2,
+        )
+    } else {
+        skipped_command_output("http probe", "DNS did not establish a hostname path")
+    };
     let wlan_events_out = powershell_capture(
         "try { Get-WinEvent -LogName 'Microsoft-Windows-WLAN-AutoConfig/Operational' -MaxEvents 40 -ErrorAction Stop | Where-Object { $_.LevelDisplayName -in @('Error','Warning') } | Select-Object -First 5 TimeCreated,Id,LevelDisplayName,ProviderName,Message | ConvertTo-Json -Depth 4 -Compress } catch { '[]' }",
         "wlan events",
@@ -2294,7 +2477,7 @@ where
     let live_windows_status = if live_captive_portal_suspected
         || live_windows_false_negative
         || live_explicit_proxy
-        || (!live_wifi_connected && live_wlan_event_count > 0)
+        || (live_wifi_path_relevant && !live_wifi_connected && live_wlan_event_count > 0)
         || (!live_dns_ok && live_dns_event_count > 0)
     {
         DiagnosticStatus::Warning
@@ -2303,7 +2486,7 @@ where
     } else {
         DiagnosticStatus::Unknown
     };
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "windows",
@@ -2324,32 +2507,44 @@ where
         9,
         "Testing whether application-level HTTPS endpoints still respond cleanly...",
     );
-    let apps_primary_out = powershell_capture_with_retry(
-        "Test-NetConnection www.microsoft.com -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
-        "apps primary",
-        2,
-    );
-    let apps_secondary_out = powershell_capture_with_retry(
-        "Test-NetConnection github.com -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
-        "apps secondary",
-        2,
-    );
+    let app_probes_ready = dns_probes_ready && live_dns_ok;
+    let apps_primary_out = if app_probes_ready {
+        powershell_capture_with_retry(
+            "Test-NetConnection www.microsoft.com -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
+            "apps primary",
+            2,
+        )
+    } else {
+        skipped_command_output(
+            "apps primary",
+            "local DNS did not establish a hostname path",
+        )
+    };
+    let apps_secondary_out = if app_probes_ready {
+        powershell_capture_with_retry(
+            "Test-NetConnection github.com -Port 443 -InformationLevel Detailed | Select-Object ComputerName,RemoteAddress,RemotePort,PingSucceeded,TcpTestSucceeded,InterfaceAlias,SourceAddress | ConvertTo-Json -Depth 4 -Compress",
+            "apps secondary",
+            2,
+        )
+    } else {
+        skipped_command_output(
+            "apps secondary",
+            "local DNS did not establish a hostname path",
+        )
+    };
     let live_apps_primary = parse_endpoint_fact(&apps_primary_out.stdout);
     let live_apps_secondary = parse_endpoint_fact(&apps_secondary_out.stdout);
     let live_app_facts = [live_apps_primary.clone(), live_apps_secondary.clone()];
-    let live_app_endpoint_successes = endpoint_success_count(&live_app_facts);
+    let live_app_endpoint_successes = endpoint_tcp_success_count(&live_app_facts);
     let live_app_signal_count = endpoint_signal_count(&live_app_facts);
     let live_apps_status = classify_endpoint_probe_status(
-        !matches!(
-            live_dns_status,
-            DiagnosticStatus::Failed | DiagnosticStatus::Skipped
-        ),
+        matches!(live_dns_status, DiagnosticStatus::Ok),
         live_app_endpoint_successes,
         live_app_signal_count,
         live_app_facts.len(),
-        2,
+        1,
     );
-    emit_node_completed(
+    emit_node_checkpoint(
         &mut emit_progress,
         run_id,
         "apps",
@@ -2387,7 +2582,7 @@ where
     let http_probe = parse_http_probe_fact(&http_probe_out.stdout);
     let os_value = parse_json(&os_out.stdout);
 
-    let primary_ip = primary_ip_fact(&ip_facts, &adapters);
+    let primary_ip = primary_ip_fact_for_routes(&ip_facts, &adapters, &routes);
     let primary_adapter =
         primary_adapter(&adapters, primary_ip.and_then(|fact| fact.interface_index));
     let primary_profile = primary_windows_profile(
@@ -2408,6 +2603,9 @@ where
     let has_wifi_adapter = adapters.iter().any(adapter_is_wireless)
         || wifi_fact.name.is_some()
         || wifi_fact.description.is_some();
+    let wifi_path_relevant = primary_adapter
+        .map(adapter_is_wireless)
+        .unwrap_or(has_wifi_adapter);
 
     let wlan_service = service_by_name(&services, "WlanSvc");
     let dhcp_service = service_by_name(&services, "Dhcp");
@@ -2432,11 +2630,13 @@ where
         .map(|state| state.eq_ignore_ascii_case("connected"))
         .unwrap_or(false);
     let wifi_profile_name = wifi_fact.profile.clone().or_else(|| wifi_fact.ssid.clone());
+    let saved_profile_inventory_known =
+        wlan_profiles_out.success || !wlan_profiles_out.stdout.trim().is_empty();
     let current_profile_saved = wifi_profile_name
         .as_ref()
         .map(|name| {
-            if saved_profiles.is_empty() {
-                true
+            if !saved_profile_inventory_known {
+                false
             } else {
                 saved_profiles
                     .iter()
@@ -2465,12 +2665,14 @@ where
         .map(|address| address.starts_with("169.254."))
         .unwrap_or(false);
     let ip_valid = ipv4_address.is_some() && !has_apipa;
+    let ip_inventory_known = ip_config_out.success || !ip_config_out.stdout.trim().is_empty();
 
     let primary_route = primary_route(
         &routes,
         primary_ip.and_then(|fact| fact.interface_index),
         gateway.as_deref(),
     );
+    let route_inventory_known = route_out.success || !route_out.stdout.trim().is_empty();
 
     let gateway_test_out = match gateway.as_deref() {
         Some(next_hop) if ip_valid => Some(powershell_capture_with_retry(
@@ -2537,7 +2739,7 @@ where
     let apps_primary_ok = apps_primary.tcp_succeeded;
     let apps_secondary_ok = apps_secondary.tcp_succeeded;
     let app_facts = [apps_primary.clone(), apps_secondary.clone()];
-    let app_endpoint_successes = endpoint_success_count(&app_facts);
+    let app_endpoint_successes = endpoint_tcp_success_count(&app_facts);
     let app_signal_count = endpoint_signal_count(&app_facts);
     let hostname_resolution_confirmed = app_endpoint_successes > 0;
     let internet_ok = internet_endpoint_successes > 0
@@ -2593,7 +2795,7 @@ where
         DiagnosticStatus::Unknown
     };
 
-    let wifi_status = if !has_wifi_adapter {
+    let wifi_status = if !wifi_path_relevant {
         DiagnosticStatus::Skipped
     } else if wlan_service.is_some() && !wifi_service_running {
         DiagnosticStatus::Failed
@@ -2605,42 +2807,43 @@ where
         DiagnosticStatus::Unknown
     };
 
-    let profile_status = if !has_wifi_adapter || !wifi_connected {
+    let profile_status = if !wifi_path_relevant || !wifi_connected {
         DiagnosticStatus::Skipped
     } else if wifi_profile_name.is_some() && current_profile_saved {
         DiagnosticStatus::Ok
+    } else if !saved_profile_inventory_known {
+        DiagnosticStatus::Unknown
     } else {
         DiagnosticStatus::Warning
     };
 
     let ip_status = if active_adapter && ip_valid {
         DiagnosticStatus::Ok
+    } else if active_adapter && ip_inventory_known {
+        DiagnosticStatus::Failed
     } else if active_adapter {
-        DiagnosticStatus::Failed
+        DiagnosticStatus::Unknown
     } else {
         DiagnosticStatus::Skipped
     };
 
-    let gateway_status = if !ip_valid {
-        DiagnosticStatus::Skipped
-    } else if gateway.is_none() || primary_route.is_none() {
-        DiagnosticStatus::Failed
-    } else if gateway_reachable == Some(true) {
-        DiagnosticStatus::Ok
-    } else if gateway_neighbor_indicates_presence(
-        gateway_neighbor_state.as_deref(),
-        gateway_neighbor_mac.as_deref(),
-    ) || internet_ok
-    {
-        DiagnosticStatus::Warning
-    } else {
-        DiagnosticStatus::Failed
-    };
+    let gateway_status = classify_gateway_status(
+        ip_valid,
+        gateway.is_some(),
+        primary_route.is_some(),
+        route_inventory_known,
+        gateway_reachable,
+        gateway_neighbor_indicates_presence(
+            gateway_neighbor_state.as_deref(),
+            gateway_neighbor_mac.as_deref(),
+        ),
+        internet_ok,
+    );
 
-    let internet_status = if !ip_valid || gateway.is_none() {
+    let internet_status = if !ip_valid || gateway.is_none() || primary_route.is_none() {
         DiagnosticStatus::Skipped
     } else if internet_endpoint_successes == 0 && internet_ok {
-        DiagnosticStatus::Warning
+        DiagnosticStatus::Ok
     } else {
         classify_endpoint_probe_status(
             true,
@@ -2662,35 +2865,40 @@ where
     let local_dns_only_failure =
         matches!(dns_status, DiagnosticStatus::Failed) && !dns_ok && dns_public_ok;
 
-    let windows_status = if captive_portal_suspected
-        || windows_false_negative
-        || proxy_configured
-        || (!wifi_connected && wlan_event_count > 0)
-        || (!dns_ok && dns_event_count > 0)
-    {
-        DiagnosticStatus::Warning
-    } else if primary_profile.is_some() || nla_running {
-        DiagnosticStatus::Ok
-    } else {
-        DiagnosticStatus::Unknown
-    };
-
     let apps_status = classify_endpoint_probe_status(
-        !matches!(
-            dns_status,
-            DiagnosticStatus::Failed | DiagnosticStatus::Skipped
-        ),
+        matches!(dns_status, DiagnosticStatus::Ok),
         app_endpoint_successes,
         app_signal_count,
         app_facts.len(),
-        2,
+        1,
+    );
+    let windows_status = classify_windows_status(
+        captive_portal_suspected,
+        windows_false_negative,
+        proxy_configured,
+        apps_status,
+        wifi_path_relevant && wifi_connected,
+        wlan_event_count,
+        dns_ok,
+        dns_event_count,
+        primary_profile.is_some(),
+        nla_running,
     );
     let internet_probes_inconclusive =
-        matches!(internet_status, DiagnosticStatus::Warning) && internet_endpoint_successes == 0;
+        !matches!(internet_status, DiagnosticStatus::Ok) && internet_endpoint_successes == 0;
     let dns_probes_inconclusive =
         matches!(dns_status, DiagnosticStatus::Warning) && !dns_ok && !dns_public_ok;
     let app_probes_inconclusive =
         matches!(apps_status, DiagnosticStatus::Warning) && app_endpoint_successes == 0;
+    let gateway_confirmed_by_upstream = matches!(gateway_status, DiagnosticStatus::Ok)
+        && gateway_reachable == Some(false)
+        && internet_ok;
+    let internet_confirmed_by_alternate =
+        matches!(internet_status, DiagnosticStatus::Ok) && internet_endpoint_successes == 0;
+    let dns_confirmed_by_hostname =
+        matches!(dns_status, DiagnosticStatus::Ok) && !dns_ok && hostname_resolution_confirmed;
+    let windows_proxy_only =
+        proxy_configured && !matches!(windows_status, DiagnosticStatus::Warning);
 
     let device_status = if coverage_ok + 2 < coverage_total {
         DiagnosticStatus::Warning
@@ -2936,7 +3144,9 @@ where
                     wlan_service
                         .map(|service| service.status.as_str())
                         .unwrap_or("Unavailable"),
-                    if wifi_service_running {
+                    if !wifi_path_relevant {
+                        DiagnosticStatus::Skipped
+                    } else if wifi_service_running {
                         DiagnosticStatus::Ok
                     } else if wlan_service.is_some() {
                         DiagnosticStatus::Failed
@@ -2949,7 +3159,9 @@ where
                     "wifi-state",
                     "Interface state",
                     wifi_fact.state.as_deref().unwrap_or("Unavailable"),
-                    if wifi_connected {
+                    if !wifi_path_relevant {
+                        DiagnosticStatus::Skipped
+                    } else if wifi_connected {
                         DiagnosticStatus::Ok
                     } else if has_wifi_adapter {
                         DiagnosticStatus::Warning
@@ -2962,7 +3174,9 @@ where
                     "wifi-ssid",
                     "SSID",
                     wifi_fact.ssid.as_deref().unwrap_or("Not connected"),
-                    if wifi_connected {
+                    if !wifi_path_relevant {
+                        DiagnosticStatus::Skipped
+                    } else if wifi_connected {
                         DiagnosticStatus::Ok
                     } else {
                         DiagnosticStatus::Unknown
@@ -2973,7 +3187,9 @@ where
                     "wifi-signal",
                     "Signal / radio",
                     wifi_fact.signal.as_deref().unwrap_or("Unavailable"),
-                    if wifi_connected {
+                    if !wifi_path_relevant {
+                        DiagnosticStatus::Skipped
+                    } else if wifi_connected {
                         DiagnosticStatus::Ok
                     } else if has_wifi_adapter {
                         DiagnosticStatus::Warning
@@ -3002,6 +3218,7 @@ where
             match profile_status {
                 DiagnosticStatus::Ok => "The connected network maps cleanly to a saved Wi-Fi profile.",
                 DiagnosticStatus::Warning => "The interface is connected, but the current wireless profile looks stale or incomplete.",
+                DiagnosticStatus::Unknown => "The saved profile inventory did not return enough data to verify this stage.",
                 _ => "Profile checks wait for an active Wi-Fi association.",
             },
             "Profile inspection stays read-only: Aegis tracks names and authentication metadata, never key material.",
@@ -3012,17 +3229,18 @@ where
                     "Current profile",
                     wifi_profile_name.as_deref().unwrap_or("Unavailable"),
                     match profile_status {
-                        DiagnosticStatus::Ok => DiagnosticStatus::Ok,
-                        DiagnosticStatus::Warning => DiagnosticStatus::Warning,
-                        _ => DiagnosticStatus::Skipped,
-                    },
+                DiagnosticStatus::Ok => DiagnosticStatus::Ok,
+                DiagnosticStatus::Warning => DiagnosticStatus::Warning,
+                DiagnosticStatus::Skipped => DiagnosticStatus::Skipped,
+                _ => DiagnosticStatus::Unknown,
+            },
                     Some("Only the profile name and authentication metadata are surfaced."),
                 ),
                 evidence(
                     "profile-auth",
                     "Authentication",
                     wifi_fact.authentication.as_deref().unwrap_or("Unavailable"),
-                    if wifi_connected {
+                    if wifi_path_relevant && wifi_connected {
                         DiagnosticStatus::Ok
                     } else {
                         DiagnosticStatus::Skipped
@@ -3033,7 +3251,9 @@ where
                     "profile-saved",
                     "Saved profile inventory",
                     &saved_profiles_display,
-                    if saved_profiles.is_empty() {
+                    if !wifi_path_relevant {
+                        DiagnosticStatus::Skipped
+                    } else if saved_profiles.is_empty() {
                         DiagnosticStatus::Unknown
                     } else if current_profile_saved {
                         DiagnosticStatus::Ok
@@ -3061,6 +3281,7 @@ where
             match ip_status {
                 DiagnosticStatus::Ok => "Windows has a usable IPv4 configuration on the active interface.",
                 DiagnosticStatus::Failed => "Windows does not have a usable IPv4 configuration on the active interface.",
+                DiagnosticStatus::Unknown => "Windows did not return enough IP data to verify the active interface.",
                 _ => "IP checks are waiting for an active route-bearing adapter.",
             },
             "Aegis inspects address assignment, DHCP mode, interface state, and DNS server configuration together so APIPA and stale adapter state are obvious.",
@@ -3072,8 +3293,10 @@ where
                     ipv4_address.as_deref().unwrap_or("Unavailable"),
                     if ip_valid {
                         DiagnosticStatus::Ok
-                    } else if active_adapter {
+                    } else if active_adapter && ip_inventory_known {
                         DiagnosticStatus::Failed
+                    } else if active_adapter {
+                        DiagnosticStatus::Unknown
                     } else {
                         DiagnosticStatus::Skipped
                     },
@@ -3120,7 +3343,11 @@ where
                     "DNS servers",
                     &dns_servers_display,
                     if dns_servers.is_empty() {
-                        DiagnosticStatus::Warning
+                        if ip_inventory_known {
+                            DiagnosticStatus::Warning
+                        } else {
+                            DiagnosticStatus::Unknown
+                        }
                     } else {
                         DiagnosticStatus::Ok
                     },
@@ -3143,9 +3370,13 @@ where
             "router",
             gateway_status,
             match gateway_status {
+                DiagnosticStatus::Ok if gateway_confirmed_by_upstream => {
+                    "The gateway did not answer a direct probe, but upstream traffic confirms the route is working."
+                }
                 DiagnosticStatus::Ok => "A default gateway exists and the local next hop responded.",
                 DiagnosticStatus::Warning => "The gateway path exists, but direct reachability looks inconsistent.",
                 DiagnosticStatus::Failed => "The local gateway is missing or did not respond when the rest of the path also looked broken.",
+                DiagnosticStatus::Unknown => "The route inventory did not return enough data to verify the gateway path.",
                 _ => "Gateway checks are skipped until the interface has usable IP configuration.",
             },
             "Aegis checks the configured route, the selected next hop, and the local neighbor table before blaming the router.",
@@ -3172,6 +3403,8 @@ where
                         .unwrap_or("Unavailable"),
                     if primary_route.is_some() {
                         DiagnosticStatus::Ok
+                    } else if !route_inventory_known && ip_valid {
+                        DiagnosticStatus::Unknown
                     } else if ip_valid {
                         DiagnosticStatus::Failed
                     } else {
@@ -3208,7 +3441,7 @@ where
                     },
                     match gateway_reachable {
                         Some(true) => DiagnosticStatus::Ok,
-                        Some(false) if internet_ok => DiagnosticStatus::Warning,
+                        Some(false) if internet_ok => DiagnosticStatus::Ok,
                         Some(false) => DiagnosticStatus::Failed,
                         None => DiagnosticStatus::Skipped,
                     },
@@ -3228,6 +3461,9 @@ where
             "globe",
             internet_status,
             match internet_status {
+                DiagnosticStatus::Ok if internet_confirmed_by_alternate => {
+                    "Public IP probes were filtered, but other live traffic confirms internet access."
+                }
                 DiagnosticStatus::Ok => "External reachability works across multiple public endpoints.",
                 DiagnosticStatus::Warning if internet_probes_inconclusive => {
                     "The public internet probes were inconclusive, so Aegis is avoiding a false failure."
@@ -3330,6 +3566,9 @@ where
             "search-check",
             dns_status,
             match dns_status {
+                DiagnosticStatus::Ok if dns_confirmed_by_hostname => {
+                    "App hostname resolution succeeded even though the dedicated DNS probe was inconsistent."
+                }
                 DiagnosticStatus::Ok => "Local and public DNS probes both resolved test hostnames.",
                 DiagnosticStatus::Failed => "The local DNS path failed even though raw reachability exists.",
                 DiagnosticStatus::Warning if dns_probes_inconclusive => {
@@ -3378,6 +3617,8 @@ where
                         DiagnosticStatus::Ok
                     } else if matches!(dns_status, DiagnosticStatus::Skipped) {
                         DiagnosticStatus::Skipped
+                    } else if dns_ok {
+                        DiagnosticStatus::Ok
                     } else {
                         DiagnosticStatus::Warning
                     },
@@ -3432,7 +3673,7 @@ where
         ),
         node(
             "windows",
-            "Windows Status",
+            "OS Status",
             "badge-check",
             windows_status,
             match windows_status {
@@ -3483,7 +3724,7 @@ where
                     } else {
                         "Direct access"
                     },
-                    if proxy_configured {
+                    if proxy_configured && !windows_proxy_only {
                         DiagnosticStatus::Warning
                     } else {
                         DiagnosticStatus::Ok
@@ -3509,7 +3750,8 @@ where
                     "windows-events",
                     "Recent WLAN/DNS warnings",
                     &format!("{wlan_event_count} WLAN, {dns_event_count} DNS"),
-                    if wlan_event_count > 0 || dns_event_count > 0 {
+                    if (!wifi_connected && wlan_event_count > 0) || (!dns_ok && dns_event_count > 0)
+                    {
                         DiagnosticStatus::Warning
                     } else {
                         DiagnosticStatus::Ok
@@ -3520,7 +3762,7 @@ where
                         .map(String::as_str),
                 ),
             ],
-            if proxy_configured || captive_portal_suspected {
+            if (proxy_configured && !windows_proxy_only) || captive_portal_suspected {
                 vec![fix("open-network-settings"), fix("generate-wlan-report")]
             } else {
                 vec![]
@@ -3567,6 +3809,8 @@ where
                         DiagnosticStatus::Ok
                     } else if matches!(apps_status, DiagnosticStatus::Skipped) {
                         DiagnosticStatus::Skipped
+                    } else if matches!(apps_status, DiagnosticStatus::Failed) {
+                        DiagnosticStatus::Failed
                     } else {
                         DiagnosticStatus::Warning
                     },
@@ -3590,6 +3834,8 @@ where
                         DiagnosticStatus::Ok
                     } else if matches!(apps_status, DiagnosticStatus::Skipped) {
                         DiagnosticStatus::Skipped
+                    } else if matches!(apps_status, DiagnosticStatus::Failed) {
+                        DiagnosticStatus::Failed
                     } else {
                         DiagnosticStatus::Warning
                     },
@@ -3603,10 +3849,8 @@ where
                     "apps-stability",
                     "HTTPS endpoint coverage",
                     &format!("{app_endpoint_successes}/2 endpoints responded"),
-                    if app_endpoint_successes == 2 {
+                    if app_endpoint_successes >= 1 {
                         DiagnosticStatus::Ok
-                    } else if app_endpoint_successes == 1 {
-                        DiagnosticStatus::Warning
                     } else if matches!(apps_status, DiagnosticStatus::Skipped) {
                         DiagnosticStatus::Skipped
                     } else if app_probes_inconclusive {
@@ -3963,6 +4207,16 @@ where
             )
     };
 
+    for (index, node) in nodes.iter().enumerate() {
+        emit_node_completed(
+            &mut emit_progress,
+            run_id,
+            &node.id,
+            index,
+            node.status,
+            &node.summary,
+        );
+    }
     emit_scan_finished(&mut emit_progress, run_id);
 
     Ok(ScanResult {
@@ -3992,6 +4246,7 @@ where
         },
         nodes,
         environment: Environment {
+            platform: "windows".to_string(),
             os: "Windows".to_string(),
             hostname: hostname(),
             app_version: "0.1.0".to_string(),
@@ -4015,12 +4270,17 @@ fn discover_execution_context() -> ExecutionContext {
         "Get-NetIPConfiguration | Select-Object InterfaceAlias,InterfaceIndex,IPv4Address,IPv4DefaultGateway,DNSServer,NetProfile | ConvertTo-Json -Depth 6 -Compress",
         "fix ip config",
     );
+    let route_out = powershell_capture(
+        "Get-NetRoute -AddressFamily IPv4 | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } | Sort-Object RouteMetric | Select-Object InterfaceAlias,InterfaceIndex,DestinationPrefix,NextHop,RouteMetric,State | ConvertTo-Json -Depth 4 -Compress",
+        "fix routes",
+    );
     let wifi_out = powershell_capture("netsh wlan show interfaces", "fix wifi interfaces");
 
     let adapters = parse_adapter_facts(&adapter_out.stdout);
     let ip_facts = parse_ip_facts(&ip_config_out.stdout);
+    let routes = parse_route_facts(&route_out.stdout);
     let wifi_fact = parse_wifi_fact(&wifi_out.stdout);
-    let primary_ip = primary_ip_fact(&ip_facts, &adapters);
+    let primary_ip = primary_ip_fact_for_routes(&ip_facts, &adapters, &routes);
     let adapter = primary_adapter(&adapters, primary_ip.and_then(|fact| fact.interface_index));
 
     ExecutionContext {
@@ -4046,10 +4306,10 @@ pub fn run_allowlisted_fix(
 ) -> Result<FixExecutionResult, Box<dyn Error>> {
     if !cfg!(target_os = "windows") {
         return Ok(FixExecutionResult {
-            fix_id: fix_id.to_string(),
-            status: "blocked".to_string(),
-            title: "Fix unavailable".to_string(),
-            message: "Real fixes are only available in the Windows Tauri build.".to_string(),
+                fix_id: fix_id.to_string(),
+                status: "blocked".to_string(),
+                title: "Fix unavailable".to_string(),
+                message: "Real fixes are only available in a supported native desktop build. No command was executed.".to_string(),
             stdout: None,
             stderr: None,
             requires_admin: Some(false),
@@ -4081,7 +4341,12 @@ pub fn run_allowlisted_fix(
         ));
     }
 
-    let context = discover_execution_context();
+    let context = match fix_id {
+        "restart-adapter" | "forget-current-profile" | "dns-automatic" | "set-public-dns" => {
+            discover_execution_context()
+        }
+        _ => ExecutionContext::default(),
+    };
     let fix = contextual_fix_action(
         fix_id,
         context.adapter_alias.as_deref(),
@@ -4333,6 +4598,7 @@ pub fn export_local_report(
 
 pub fn environment_info() -> EnvironmentInfo {
     EnvironmentInfo {
+        platform: std::env::consts::OS.to_string(),
         os: std::env::consts::OS.to_string(),
         hostname: hostname(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -4348,7 +4614,7 @@ pub fn runtime_health() -> RuntimeHealth {
             checked_at: now_iso(),
             state: "preview".to_string(),
             summary: "Preview workspace".to_string(),
-            detail: "Live diagnostics and repair actions only run in the Windows Tauri app."
+            detail: "Live diagnostics and repair actions are currently available in the Windows and macOS Tauri apps. Linux support is planned."
                 .to_string(),
             capabilities: RuntimeCapabilities {
                 can_run_timeline_scans: true,
@@ -4501,11 +4767,20 @@ pub fn system_metrics() -> SystemMetrics {
 mod tests {
     use super::classify_dns_status;
     use super::classify_endpoint_probe_status;
+    use super::classify_gateway_status;
+    use super::classify_windows_status;
+    use super::endpoint_success_count;
+    use super::endpoint_tcp_success_count;
     use super::join_runtime_problems;
+    use super::primary_ip_fact_for_routes;
     use super::proxy_requires_attention;
     use super::run_windows_scan;
+    use super::AdapterFact;
     use super::DiagnosticStatus;
+    use super::EndpointFact;
+    use super::IpFact;
     use super::ProxyFact;
+    use super::RouteFact;
 
     #[test]
     fn joins_runtime_problems_readably() {
@@ -4566,11 +4841,126 @@ mod tests {
     fn hostname_success_prevents_false_dns_failure() {
         assert_eq!(
             classify_dns_status(DiagnosticStatus::Ok, false, true, true, true, true),
-            DiagnosticStatus::Warning
+            DiagnosticStatus::Ok
         );
         assert_eq!(
             classify_dns_status(DiagnosticStatus::Ok, false, true, true, true, false),
             DiagnosticStatus::Failed
+        );
+        assert_eq!(
+            classify_dns_status(DiagnosticStatus::Ok, true, false, true, true, false),
+            DiagnosticStatus::Ok
+        );
+    }
+
+    #[test]
+    fn upstream_connectivity_prevents_false_gateway_failure() {
+        assert_eq!(
+            classify_gateway_status(true, true, true, true, Some(false), true, true),
+            DiagnosticStatus::Ok
+        );
+        assert_eq!(
+            classify_gateway_status(true, true, true, true, Some(false), false, false),
+            DiagnosticStatus::Failed
+        );
+        assert_eq!(
+            classify_gateway_status(true, true, false, false, None, false, false),
+            DiagnosticStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn proxy_configuration_alone_does_not_warn_windows_status() {
+        assert_eq!(
+            classify_windows_status(
+                false,
+                false,
+                true,
+                DiagnosticStatus::Ok,
+                true,
+                0,
+                true,
+                0,
+                true,
+                true,
+            ),
+            DiagnosticStatus::Ok
+        );
+        assert_eq!(
+            classify_windows_status(
+                false,
+                false,
+                true,
+                DiagnosticStatus::Warning,
+                true,
+                0,
+                true,
+                0,
+                true,
+                true,
+            ),
+            DiagnosticStatus::Warning
+        );
+    }
+
+    #[test]
+    fn ping_success_does_not_count_as_https_success() {
+        let ping_only = EndpointFact {
+            computer_name: Some("example.com".to_string()),
+            ping_succeeded: true,
+            tcp_succeeded: false,
+            ..EndpointFact::default()
+        };
+
+        assert_eq!(endpoint_success_count(&[ping_only.clone()]), 1);
+        assert_eq!(endpoint_tcp_success_count(&[ping_only]), 0);
+    }
+
+    #[test]
+    fn route_bearing_interface_is_preferred_for_primary_ip() {
+        let adapters = vec![
+            AdapterFact {
+                name: "Wi-Fi".to_string(),
+                status: "Up".to_string(),
+                interface_index: Some(7),
+                hardware_interface: true,
+                ..AdapterFact::default()
+            },
+            AdapterFact {
+                name: "VPN".to_string(),
+                status: "Up".to_string(),
+                interface_index: Some(3),
+                hardware_interface: true,
+                ..AdapterFact::default()
+            },
+        ];
+        let ip_facts = vec![
+            IpFact {
+                interface_alias: Some("VPN".to_string()),
+                interface_index: Some(3),
+                ipv4_address: Some("10.0.0.2".to_string()),
+                ..IpFact::default()
+            },
+            IpFact {
+                interface_alias: Some("Wi-Fi".to_string()),
+                interface_index: Some(7),
+                ipv4_address: Some("192.168.1.42".to_string()),
+                ..IpFact::default()
+            },
+        ];
+        let routes = vec![RouteFact {
+            interface_alias: Some("Wi-Fi".to_string()),
+            interface_index: Some(7),
+            destination_prefix: Some("0.0.0.0/0".to_string()),
+            route_metric: Some(25),
+            state: Some("Active".to_string()),
+            ..RouteFact::default()
+        }];
+
+        assert_eq!(
+            primary_ip_fact_for_routes(&ip_facts, &adapters, &routes)
+                .and_then(|fact| fact.interface_index),
+            Some(7)
         );
     }
 }

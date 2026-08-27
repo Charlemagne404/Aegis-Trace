@@ -32,16 +32,16 @@ export const MOCK_SCENARIOS: MockScenario[] = [
   {
     id: "dhcp-apipa",
     label: "DHCP / APIPA",
-    description: "Wi-Fi connected but Windows has a 169.254.x.x address."
+    description: "Wi-Fi connected but the device has a 169.254.x.x address."
   },
   {
     id: "no-adapter",
     label: "No Wi-Fi adapter",
-    description: "Windows cannot see a usable wireless adapter."
+    description: "The operating system cannot see a usable wireless adapter."
   },
   {
     id: "wlan-service-stopped",
-    label: "WLAN service stopped",
+    label: "Wireless management stopped",
     description: "Wireless service is stopped while adapter exists."
   },
   {
@@ -61,8 +61,8 @@ export const MOCK_SCENARIOS: MockScenario[] = [
   },
   {
     id: "windows-false-negative",
-    label: "Windows false no-internet",
-    description: "Independent tests pass but Windows reports no internet."
+    label: "OS false no-internet",
+    description: "Independent tests pass but the operating system reports no internet."
   },
   {
     id: "captive-portal",
@@ -167,7 +167,7 @@ function baseNode(id: string): DiagnosticNode {
         ...common,
         summary: "A usable Wi-Fi adapter is enabled.",
         explanation:
-          "Windows reports an enabled wireless adapter with a healthy driver state.",
+          "The operating system reports an enabled wireless adapter with a healthy driver state.",
         evidence: [
           okEvidence("adapter", "Adapter", "Intel(R) Wi-Fi 6E AX211"),
           okEvidence("state", "State", "Up"),
@@ -263,9 +263,9 @@ function baseNode(id: string): DiagnosticNode {
     case "windows":
       return {
         ...common,
-        summary: "Windows reports internet access.",
+        summary: "The operating system reports internet access.",
         explanation:
-          "Windows network status aligns with the direct connectivity checks.",
+          "Operating-system network status aligns with the direct connectivity checks.",
         evidence: [
           okEvidence("profile", "Network profile", "Private"),
           okEvidence("connectivity", "IPv4 connectivity", "Internet"),
@@ -344,6 +344,7 @@ function makeScan(id: MockScenarioId, patches: NodePatch[]): ScanResult {
     diagnosis,
     nodes,
     environment: {
+      platform: "windows",
       os: "Windows 11 Pro",
       hostname: "DESKTOP-AEGIS",
       appVersion: "1.3.0.2024",
@@ -390,14 +391,14 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           id: "windows",
           status: "warning",
           severity: "medium",
-          summary: "Windows may report limited connectivity because DNS failed.",
+          summary: "The operating system may report limited connectivity because DNS failed.",
           explanation:
-            "Windows internet status relies partly on DNS. Since DNS is failing, the Windows status warning is likely a symptom, not the root cause.",
+            "Operating-system internet status relies partly on DNS. Since DNS is failing, the status warning is likely a symptom, not the root cause.",
           evidence: [
-            warningEvidence("ncsi", "Windows connectivity", "Limited"),
+            warningEvidence("ncsi", "OS connectivity", "Limited"),
             okEvidence("proxy", "WinHTTP proxy", "Direct access")
           ],
-          likelyCauses: ["DNS failure is affecting Windows connectivity detection"]
+          likelyCauses: ["DNS failure is affecting operating-system connectivity detection"]
         },
         {
           id: "apps",
@@ -418,7 +419,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           id: "ip",
           status: "failed",
           severity: "high",
-          summary: "Windows has an APIPA address instead of a valid network address.",
+          summary: "The device has an APIPA address instead of a valid network address.",
           explanation:
             "The Wi-Fi link is connected, but DHCP did not provide a usable IP address. A 169.254.x.x address only works for limited local fallback networking.",
           evidence: [
@@ -445,7 +446,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
         {
           id: "windows",
           status: "warning",
-          summary: "Windows reports no internet access.",
+          summary: "The operating system reports no internet access.",
           explanation:
             "This warning is expected because the device does not have a valid IP address.",
           evidence: [warningEvidence("connectivity", "IPv4 connectivity", "No traffic")]
@@ -480,7 +481,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
         makeSkipped("gateway", "Gateway checks are unavailable."),
         makeSkipped("internet", "Internet checks are unavailable."),
         makeSkipped("dns", "DNS checks are unavailable."),
-        makeSkipped("windows", "Windows status is not meaningful without an adapter."),
+        makeSkipped("windows", "Operating-system status is not meaningful without an adapter."),
         makeSkipped("apps", "App checks are unavailable.")
       ];
     case "wlan-service-stopped":
@@ -489,7 +490,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           id: "wifi",
           status: "failed",
           severity: "high",
-          summary: "The WLAN AutoConfig service is stopped.",
+          summary: "Wireless management is stopped.",
           explanation:
             "Windows can see the Wi-Fi adapter, but the service responsible for managing wireless networks is not running.",
           evidence: [
@@ -510,7 +511,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
         makeSkipped("gateway", "Gateway checks require Wi-Fi connectivity."),
         makeSkipped("internet", "Internet checks require Wi-Fi connectivity."),
         makeSkipped("dns", "DNS checks require Wi-Fi connectivity."),
-        makeSkipped("windows", "Windows status is blocked by the Wi-Fi service failure."),
+        makeSkipped("windows", "Operating-system status is blocked by the Wi-Fi service failure."),
         makeSkipped("apps", "App checks are blocked by the Wi-Fi service failure.")
       ];
     case "gateway-unreachable":
@@ -541,7 +542,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
         {
           id: "windows",
           status: "warning",
-          summary: "Windows reports no internet because the gateway is unreachable.",
+          summary: "The operating system reports no internet because the gateway is unreachable.",
           explanation:
             "This is consistent with the failed gateway check and is not the primary failure.",
           evidence: [warningEvidence("connectivity", "IPv4 connectivity", "Local network only")]
@@ -575,7 +576,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
         {
           id: "windows",
           status: "warning",
-          summary: "Windows reports no internet access.",
+          summary: "The operating system reports no internet access.",
           explanation:
             "This warning matches the failed external IP connectivity check.",
           evidence: [warningEvidence("connectivity", "IPv4 connectivity", "No internet")]
@@ -597,7 +598,7 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           severity: "medium",
           summary: "A system proxy is configured.",
           explanation:
-            "Core internet and DNS checks pass, but Windows has a proxy configured. If the proxy is stale or unreachable, apps may fail while raw connectivity works.",
+            "Core internet and DNS checks pass, but the operating system has a proxy configured. If the proxy is stale or unreachable, apps may fail while raw connectivity works.",
           evidence: [
             warningEvidence("proxy", "WinHTTP proxy", "proxy.corp.example:8080"),
             okEvidence("connectivity", "IPv4 connectivity", "Internet")
@@ -639,9 +640,9 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           id: "windows",
           status: "warning",
           severity: "medium",
-          summary: "Windows status disagrees with direct connectivity tests.",
+          summary: "Operating-system status disagrees with direct connectivity tests.",
           explanation:
-            "Aegis can reach the internet, resolve DNS, and connect to HTTPS, but Windows still reports limited connectivity.",
+            "Aegis can reach the internet, resolve DNS, and connect to HTTPS, but the operating system still reports limited connectivity.",
           evidence: [
             warningEvidence("ncsi", "Windows connectivity", "No Internet"),
             okEvidence("internet", "External IP", "Reachable"),

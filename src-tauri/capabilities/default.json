@@ -3,6 +3,6 @@
   "identifier": "main-capability",
   "description": "Capabilities for the main Aegis Trace window.",
   "windows": ["main"],
-  "platforms": ["windows"],
+  "platforms": ["macOS", "windows", "linux"],
   "permissions": ["core:default"]
 }

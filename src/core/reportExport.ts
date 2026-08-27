@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { platformLabel, scanPlatform } from "./platform";
 import type { DiagnosticNode, ReportFormat, ScanResult } from "./types";
 
 function escapeHtml(value: string): string {
@@ -40,7 +41,9 @@ function nodeToHtml(node: DiagnosticNode): string {
 }
 
 function scanSourceLabel(scan: ScanResult): string {
-  return scan.mode === "real" ? "Live Windows scan" : "Local preview data";
+  return scan.mode === "real"
+    ? `Live ${platformLabel(scanPlatform(scan))} scan`
+    : "Local preview data";
 }
 
 function nodeToSummaryBlock(node: DiagnosticNode): string {

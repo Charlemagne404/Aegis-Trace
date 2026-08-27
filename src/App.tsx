@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { AnimatePresence } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { FindingsPanel } from "@/components/dashboard/FindingsPanel";
+import { RecentScans } from "@/components/dashboard/RecentScans";
 import { StatusOverview } from "@/components/dashboard/StatusOverview";
 import { DiagnosticTimeline } from "@/components/timeline/DiagnosticTimeline";
 import { ConfirmFixModal } from "@/components/fixes/ConfirmFixModal";
 import { RepairPlanPanel } from "@/components/fixes/RepairPlanPanel";
+import { DetailsPanel } from "@/components/details/DetailsPanel";
 import { ReportPreview } from "@/components/reports/ReportPreview";
 import { RuntimeNotice } from "@/components/runtime/RuntimeNotice";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
@@ -39,7 +41,7 @@ import type {
   ReportFormat,
   RuntimeHealth,
   ScanHistoryEntry,
-  ScanHistoryReason,
+  ScanRunMetadata,
   ScanResult,
   ThemeMode,
   WorkspaceMode
@@ -47,17 +49,13 @@ import type {
 import { useDiagnosticScan } from "@/hooks/useDiagnosticScan";
 import { useFooterMetrics } from "@/hooks/useFooterMetrics";
 import { mockAdapter } from "@/platform/mockAdapter";
-import { tauriAdapter } from "@/platform/tauriAdapter";
+import { hasTauriRuntime, tauriAdapter } from "@/platform/tauriAdapter";
+import { getBrowserEnvironmentInfo } from "@/platform/browserEnvironment";
 import { TimeoutError, withTimeout } from "@/utils/async";
 
 const FIX_EXECUTION_TIMEOUT_MS = 45_000;
 
-type PendingHistoryCapture = {
-  reason: ScanHistoryReason;
-  scenarioId?: MockScenarioId;
-  relatedFixId?: string;
-  relatedFixTitle?: string;
-};
+type PendingHistoryCapture = ScanRunMetadata;
 
 function createHistoryEntry(
   scan: ScanResult,
@@ -90,6 +88,7 @@ function resolveInitialAppState() {
 
 export default function App() {
   const initialAppState = useRef(resolveInitialAppState()).current;
+  const initialEnvironmentInfo = getBrowserEnvironmentInfo(hasTauriRuntime());
   const [scenarioId, setScenarioId] = useState<MockScenarioId>(
     initialAppState.initialScenarioId
   );
@@ -103,13 +102,15 @@ export default function App() {
   const [showRawOutput, setShowRawOutput] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [reportError, setReportError] = useState<string | undefined>();
   const [pendingFix, setPendingFix] = useState<FixAction | null>(null);
   const [fixBusy, setFixBusy] = useState(false);
   const [fixResult, setFixResult] = useState<FixExecutionResult | null>(null);
   const [environmentInfo, setEnvironmentInfo] = useState<EnvironmentInfo>({
-    ...initialAppState.initialScan.environment,
-    isWindows: false,
-    isTauri: false
+    ...initialEnvironmentInfo,
+    appVersion: initialAppState.initialScan.environment.appVersion
   });
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth>(
     createPreviewRuntimeHealth()
@@ -117,13 +118,10 @@ export default function App() {
   const [repairVerification, setRepairVerification] =
     useState<RepairVerification | null>(null);
   const [isVerifyingFix, setIsVerifyingFix] = useState(false);
+  const fixBusyRef = useRef(false);
   const [scanHistory, setScanHistory] = useState<ScanHistoryEntry[]>(
     initialAppState.history
   );
-  const pendingHistoryCaptureRef = useRef<PendingHistoryCapture>({
-    reason: "manual",
-    scenarioId: initialAppState.initialScenarioId
-  });
 
   const adapter = useMemo(() => (demoMode ? mockAdapter : tauriAdapter), [demoMode]);
   const workspaceMode: WorkspaceMode = deriveWorkspaceMode(runtimeHealth, demoMode);
@@ -137,17 +135,25 @@ export default function App() {
     completedNodeIds,
     scanProgress,
     scanError,
+    scanDurationMs,
+    canStartScan,
     runScan,
     loadScan
   } = useDiagnosticScan({
     adapter,
     initialScan: initialAppState.initialScan,
-    onScanComplete: (scan) => {
+    onScanComplete: (scan, metadata) => {
       setSelectedNodeId(scan.diagnosis.primaryFailedNodeId ?? scan.nodes[0]?.id);
       setScanHistory((currentHistory) =>
         upsertScanHistoryEntry(
           currentHistory,
-          createHistoryEntry(scan, pendingHistoryCaptureRef.current)
+          createHistoryEntry(
+            scan,
+            metadata ?? {
+              reason: "manual",
+              scenarioId: demoMode ? scenarioId : undefined
+            }
+          )
         )
       );
     }
@@ -183,11 +189,7 @@ export default function App() {
         console.warn("Failed to load runtime environment info", error);
 
         if (!cancelled) {
-          const previewEnvironment = {
-            ...initialAppState.initialScan.environment,
-            isWindows: false,
-            isTauri: false
-          };
+          const previewEnvironment = getBrowserEnvironmentInfo(hasTauriRuntime());
           setEnvironmentInfo(previewEnvironment);
           setRuntimeHealth(
             demoMode
@@ -211,50 +213,71 @@ export default function App() {
   const selectedNode =
     displayNodes.find((node) => node.id === selectedNodeId) ?? displayNodes[0];
   const totalChecks = scanResult.nodes.reduce((count, node) => count + node.evidence.length, 0);
-  const scanActionReason = getScanDisabledReason(runtimeHealth, demoMode);
-  const fixDisabledReason = getFixDisabledReason(runtimeHealth, demoMode);
+  const workspaceBusy = isScanning || fixBusy || isVerifyingFix;
+  const scanActionReason =
+    getScanDisabledReason(runtimeHealth, demoMode) ??
+    (workspaceBusy ? "Aegis is finishing the current diagnostic action." : undefined);
+  const fixDisabledReason =
+    getFixDisabledReason(runtimeHealth, demoMode) ??
+    (workspaceBusy ? "Wait for the current diagnostic action to finish before applying a fix." : undefined);
   const canRunScan = !scanActionReason;
   const canRunFixes = !fixDisabledReason;
 
   const handleScenarioChange = (nextScenario: MockScenarioId) => {
-    pendingHistoryCaptureRef.current = {
-      reason: "scenario",
-      scenarioId: nextScenario
-    };
+    if (workspaceBusy || !canStartScan()) {
+      return;
+    }
 
     startTransition(() => {
       setScenarioId(nextScenario);
       setFixResult(null);
+      setRepairVerification(null);
+      setPendingFix(null);
     });
-    void runScan(nextScenario);
+    void runScan(nextScenario, {
+      reason: "scenario",
+      scenarioId: nextScenario
+    });
   };
 
   const handleRunScan = () => {
-    if (!canRunScan) {
+    if (!canRunScan || workspaceBusy || !canStartScan()) {
       return;
     }
 
-    pendingHistoryCaptureRef.current = {
-      reason: "manual",
-      scenarioId
-    };
     setFixResult(null);
-    void runScan(scenarioId);
+    setRepairVerification(null);
+    setPendingFix(null);
+    void runScan(scenarioId, {
+      reason: "manual",
+      scenarioId: demoMode ? scenarioId : undefined
+    });
   };
 
   const handleSelectHistoryEntry = (entry: ScanHistoryEntry) => {
+    if (workspaceBusy) {
+      return;
+    }
+
     loadScan(entry.scan);
     setSelectedNodeId(entry.scan.diagnosis.primaryFailedNodeId ?? entry.scan.nodes[0]?.id);
     setFixResult(null);
     setPendingFix(null);
     setRepairVerification(null);
     setIsVerifyingFix(false);
+    setDetailsOpen(false);
+    setReportOpen(false);
+    setHistoryOpen(false);
     if (entry.scenarioId) {
       setScenarioId(entry.scenarioId);
     }
   };
 
   const handleConfirmFix = async (fix: FixAction, confirmation?: FixConfirmation) => {
+    if (fixBusyRef.current || isScanning || !canStartScan()) {
+      return;
+    }
+
     if (!canRunFixes) {
       setPendingFix(null);
       setFixResult({
@@ -268,6 +291,7 @@ export default function App() {
     }
 
     const beforeScan = scanResult;
+    fixBusyRef.current = true;
     setFixBusy(true);
     setRepairVerification(null);
     setScanHistory((currentHistory) =>
@@ -275,7 +299,7 @@ export default function App() {
         currentHistory,
         createHistoryEntry(beforeScan, {
           reason: "manual",
-          scenarioId
+          scenarioId: demoMode ? scenarioId : undefined
         })
       )
     );
@@ -298,14 +322,14 @@ export default function App() {
         }
 
         setIsVerifyingFix(true);
-        pendingHistoryCaptureRef.current = {
+        const verificationMetadata: PendingHistoryCapture = {
           reason: "verification",
           scenarioId: demoMode ? nextScenario : scenarioId,
           relatedFixId: fix.id,
           relatedFixTitle: fix.title
         };
 
-        const afterScan = await runScan(nextScenario);
+        const afterScan = await runScan(nextScenario, verificationMetadata);
         if (afterScan) {
           setRepairVerification(buildRepairVerification(beforeScan, afterScan, result));
         } else {
@@ -337,13 +361,21 @@ export default function App() {
       setPendingFix(null);
       setRepairVerification(buildRepairBlockedVerification(beforeScan, blockedResult));
     } finally {
+      fixBusyRef.current = false;
       setFixBusy(false);
       setIsVerifyingFix(false);
     }
   };
 
   const handleExportReport = (format: ReportFormat) => {
-    void adapter.exportReport(scanResult, format);
+    setReportError(undefined);
+    void adapter.exportReport(scanResult, format).catch((error) => {
+      setReportError(
+        error instanceof Error
+          ? error.message
+          : "Aegis could not export the requested report."
+      );
+    });
   };
 
   return (
@@ -361,10 +393,14 @@ export default function App() {
       onModeChange={setMode}
       onThemeChange={setTheme}
       onRunScan={handleRunScan}
-      onExportReport={() => setReportOpen(true)}
+      onExportReport={() => {
+        setReportError(undefined);
+        setReportOpen(true);
+      }}
+      onOpenHistory={() => setHistoryOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
     >
-      <div className="dashboard-viewport grid h-full min-h-0 min-w-0 gap-2 lg:grid-rows-[auto_auto_auto_minmax(0,1fr)]">
+      <div className="dashboard-viewport flex min-w-0 flex-col gap-3 lg:h-full lg:min-h-0">
         <RuntimeNotice runtimeHealth={runtimeHealth} scanError={scanError} />
 
         <StatusOverview
@@ -372,13 +408,13 @@ export default function App() {
           liveNodes={displayNodes}
           completedChecks={totalChecks}
           lastRunAt={scanResult.createdAt}
+          scanDurationMs={scanDurationMs}
           isScanning={isScanning}
           scanProgress={scanProgress}
           totalTimelineNodes={displayNodes.length}
           scanActionEnabled={canRunScan}
           scanActionReason={scanActionReason}
           onRunScan={handleRunScan}
-          onViewReport={() => setReportOpen(true)}
         />
 
         <DiagnosticTimeline
@@ -391,12 +427,12 @@ export default function App() {
           isScanning={isScanning}
         />
 
-        <div className="grid min-w-0 gap-2 lg:min-h-0 lg:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
+        <div className="grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
           <FindingsPanel
             nodes={displayNodes}
             selectedNodeId={selectedNode?.id}
             onSelectNode={setSelectedNodeId}
-            onViewDetails={() => setReportOpen(true)}
+            onViewDetails={() => setDetailsOpen(Boolean(selectedNode))}
           />
 
           <RepairPlanPanel
@@ -426,9 +462,81 @@ export default function App() {
       {reportOpen ? (
         <ReportPreview
           scan={scanResult}
+          exportError={reportError}
           onClose={() => setReportOpen(false)}
           onExport={handleExportReport}
         />
+      ) : null}
+
+      {detailsOpen && selectedNode ? (
+        <div
+          className="fixed inset-0 z-40 grid place-items-center bg-slate-950/72 p-4 backdrop-blur-xl"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selectedNode.label} details`}
+        >
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0c1424] shadow-panel">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Selected timeline stage
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-white">{selectedNode.label}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(false)}
+                className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-5">
+              <DetailsPanel
+                node={selectedNode}
+                mode={mode}
+                fixesEnabled={canRunFixes}
+                fixesDisabledReason={fixDisabledReason}
+                onRunFix={setPendingFix}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div
+          className="fixed inset-0 z-40 grid place-items-center bg-slate-950/72 p-4 backdrop-blur-xl"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Local scan history"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0c1424] shadow-panel">
+            <div className="flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Timeline archive
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-white">Local scan history</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryOpen(false)}
+                className="rounded-full border border-white/10 px-3 py-2 text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 overflow-auto p-4 sm:p-5">
+              <RecentScans
+                entries={scanHistory}
+                activeScanId={scanResult.id}
+                onSelectScan={handleSelectHistoryEntry}
+                onClearHistory={() => setScanHistory([])}
+              />
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <SettingsPanel
@@ -437,6 +545,7 @@ export default function App() {
         environmentInfo={environmentInfo}
         rawOutput={showRawOutput}
         scenarioId={scenarioId}
+        busy={workspaceBusy}
         onDemoModeChange={setDemoMode}
         onRawOutputChange={setShowRawOutput}
         onScenarioChange={handleScenarioChange}

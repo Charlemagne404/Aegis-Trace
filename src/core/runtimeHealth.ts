@@ -1,19 +1,24 @@
 import type { EnvironmentInfo, RuntimeHealth, WorkspaceMode } from "./types";
+import { isLivePlatform, platformLabel } from "./platform";
 
 function checkedAt() {
   return new Date().toISOString();
 }
 
 export function createPreviewRuntimeHealth(environment?: Partial<EnvironmentInfo>): RuntimeHealth {
-  const isWindowsBrowser = Boolean(environment?.isWindows);
+  const platform = environment?.platform ?? "unknown";
+  const platformName = platformLabel(platform);
+  const desktopHint = platform === "linux"
+    ? "Linux live diagnostics are planned for a future platform adapter."
+    : isLivePlatform(platform)
+      ? `Live ${platformName} scans and repair actions require the Aegis Tauri desktop app.`
+      : "Live scans and repair actions require a supported Aegis Tauri desktop app.";
 
   return {
     checkedAt: checkedAt(),
     state: "preview",
     summary: "Preview workspace",
-    detail: isWindowsBrowser
-      ? "This session can preview the timeline with local sample data, but live Windows scans and repair actions require the Tauri desktop app."
-      : "This session can preview the timeline with local sample data. Live scans and repair actions only run inside the Windows Tauri app.",
+    detail: `This session can preview the timeline with local sample data. ${desktopHint}`,
     capabilities: {
       canRunTimelineScans: true,
       canRunLiveScans: false,
@@ -43,11 +48,14 @@ export function createLabRuntimeHealth(): RuntimeHealth {
   };
 }
 
-export function createDegradedRuntimeHealth(detail: string): RuntimeHealth {
+export function createDegradedRuntimeHealth(
+  detail: string,
+  platform: EnvironmentInfo["platform"] = "unknown"
+): RuntimeHealth {
   return {
     checkedAt: checkedAt(),
     state: "degraded",
-    summary: "Windows runtime issue detected",
+    summary: `${platformLabel(platform)} runtime issue detected`,
     detail,
     capabilities: {
       canRunTimelineScans: false,
@@ -102,7 +110,7 @@ export function getFixDisabledReason(
   }
 
   if (runtimeHealth.state === "preview") {
-    return "Live repair actions only run inside the Windows desktop app. Use Diagnostic lab to simulate fixes during development.";
+    return "Live repair actions only run inside a supported Aegis desktop app. Use Diagnostic lab to simulate fixes during development.";
   }
 
   return runtimeHealth.detail;

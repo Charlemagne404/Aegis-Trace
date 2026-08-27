@@ -1,1 +1,1 @@
-{"main-capability":{"identifier":"main-capability","description":"Capabilities for the main Aegis Trace window.","local":true,"windows":["main"],"permissions":["core:default"],"platforms":["windows"]}}
+{"main-capability":{"identifier":"main-capability","description":"Capabilities for the main Aegis Trace window.","local":true,"windows":["main"],"permissions":["core:default"],"platforms":["macOS","windows","linux"]}}

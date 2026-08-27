@@ -37,7 +37,7 @@ export function FixActionCard({
           onClick={() => onRun(fix)}
           disabled={!actionsEnabled}
           title={!actionsEnabled ? disabledReason : undefined}
-          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-50 transition hover:border-cyan-200/45 hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-55"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-cyan-300/25 bg-cyan-300/10 px-3 py-2 text-sm font-semibold text-cyan-50 transition hover:border-cyan-200/45 hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Preview & run
           <ArrowRight className="h-4 w-4" />

@@ -1,15 +1,19 @@
 import { Download, X } from "lucide-react";
 import type { ReportFormat, ScanResult } from "@/core/types";
 import { StatusPill } from "@/components/common/StatusPill";
+import { platformLabel, scanPlatform } from "@/core/platform";
 
 type ReportPreviewProps = {
   scan: ScanResult;
+  exportError?: string;
   onClose: () => void;
   onExport: (format: ReportFormat) => void;
 };
 
-export function ReportPreview({ scan, onClose, onExport }: ReportPreviewProps) {
-  const sourceLabel = scan.mode === "real" ? "Live Windows scan" : "Local preview data";
+export function ReportPreview({ scan, exportError, onClose, onExport }: ReportPreviewProps) {
+  const sourceLabel = scan.mode === "real"
+    ? `Live ${platformLabel(scanPlatform(scan))} scan`
+    : "Local preview data";
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/72 p-4 backdrop-blur-xl">
@@ -78,6 +82,12 @@ export function ReportPreview({ scan, onClose, onExport }: ReportPreviewProps) {
           <section className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
             Privacy warning: exported reports may include adapter names, IP addresses, DNS servers, and command output. Aegis does not upload this data.
           </section>
+
+          {exportError ? (
+            <section className="mt-4 rounded-2xl border border-rose-300/25 bg-rose-300/10 p-4 text-sm leading-6 text-rose-100">
+              Export failed: {exportError}
+            </section>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3 border-t border-white/10 p-5 sm:flex-row sm:justify-end">
