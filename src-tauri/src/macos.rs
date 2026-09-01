@@ -9,6 +9,7 @@ use crate::diagnostics::{
     RuntimeHealth, RuntimeIssue, ScanProgressEvent, ScanResult, Severity,
 };
 use std::error::Error;
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant};
 
 const TOTAL_TIMELINE_NODES: usize = 10;
 const AGGRESSIVE_CONFIRMATION_PHRASE: &str = "RESET";
+const MAX_CAPTURE_BYTES: usize = 512 * 1024;
 
 #[derive(Debug)]
 struct CommandOutput {
@@ -54,6 +56,7 @@ struct MacContext {
     wifi_device: Option<String>,
     wifi_service: Option<String>,
     wifi_ssid: Option<String>,
+    gateway: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -91,25 +94,54 @@ fn run_process(
         .stderr(Stdio::piped());
 
     let mut child = command.spawn()?;
+    let stdout_reader = child
+        .stdout
+        .take()
+        .map(|mut stream| thread::spawn(move || read_process_output(&mut stream)));
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|mut stream| thread::spawn(move || read_process_output(&mut stream)));
     let start = Instant::now();
 
     loop {
-        if child.try_wait()?.is_some() {
-            let output = child.wait_with_output()?;
+        if crate::diagnostics::scan_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let process_stderr = join_process_output(stderr_reader);
             return Ok(CommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                success: output.status.success(),
+                stdout: join_process_output(stdout_reader),
+                stderr: if process_stderr.trim().is_empty() {
+                    "Scan cancelled or exceeded its time budget".to_string()
+                } else {
+                    format!("{process_stderr}\nScan cancelled or exceeded its time budget")
+                },
+                success: false,
+                ran: true,
+            });
+        }
+
+        if child.try_wait()?.is_some() {
+            let status = child.wait()?;
+            return Ok(CommandOutput {
+                stdout: join_process_output(stdout_reader),
+                stderr: join_process_output(stderr_reader),
+                success: status.success(),
                 ran: true,
             });
         }
 
         if start.elapsed() > timeout {
             let _ = child.kill();
-            let output = child.wait_with_output()?;
+            let _ = child.wait();
+            let process_stderr = join_process_output(stderr_reader);
             return Ok(CommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: "Command timed out".to_string(),
+                stdout: join_process_output(stdout_reader),
+                stderr: if process_stderr.trim().is_empty() {
+                    "Command timed out".to_string()
+                } else {
+                    format!("{process_stderr}\nCommand timed out")
+                },
                 success: false,
                 ran: true,
             });
@@ -119,7 +151,43 @@ fn run_process(
     }
 }
 
+fn read_process_output<R: Read>(reader: &mut R) -> Vec<u8> {
+    let mut captured = Vec::new();
+    let mut buffer = [0_u8; 8 * 1024];
+
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => {
+                if captured.len() < MAX_CAPTURE_BYTES {
+                    let remaining = MAX_CAPTURE_BYTES - captured.len();
+                    captured.extend_from_slice(&buffer[..bytes_read.min(remaining)]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    captured
+}
+
+fn join_process_output(handle: Option<thread::JoinHandle<Vec<u8>>>) -> String {
+    handle
+        .and_then(|handle| handle.join().ok())
+        .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+        .unwrap_or_default()
+}
+
 fn capture(program: &str, args: &[&str], label: &str) -> CommandOutput {
+    if crate::diagnostics::scan_cancelled() {
+        return CommandOutput {
+            stdout: String::new(),
+            stderr: format!("{label}: scan cancelled or exceeded its time budget"),
+            success: false,
+            ran: false,
+        };
+    }
+
     run_process(program, args, Duration::from_secs(8)).unwrap_or_else(|error| CommandOutput {
         stdout: String::new(),
         stderr: format!("{label}: {error}"),
@@ -134,6 +202,15 @@ fn capture_with_timeout(
     timeout: Duration,
     label: &str,
 ) -> CommandOutput {
+    if crate::diagnostics::scan_cancelled() {
+        return CommandOutput {
+            stdout: String::new(),
+            stderr: format!("{label}: scan cancelled or exceeded its time budget"),
+            success: false,
+            ran: false,
+        };
+    }
+
     run_process(program, args, timeout).unwrap_or_else(|error| CommandOutput {
         stdout: String::new(),
         stderr: format!("{label}: {error}"),
@@ -703,6 +780,11 @@ fn mac_fix_action(id: &str, context: &MacContext) -> Option<FixAction> {
         .as_deref()
         .map(quote_preview)
         .unwrap_or_else(|| "<SSID>".to_string());
+    let gateway = context
+        .gateway
+        .as_deref()
+        .map(quote_preview)
+        .unwrap_or_else(|| "<gateway>".to_string());
 
     let action = match id {
         "flush-dns" => FixAction {
@@ -767,6 +849,73 @@ fn mac_fix_action(id: &str, context: &MacContext) -> Option<FixAction> {
             ]),
             estimated_impact: "No settings are changed automatically.".to_string(),
             warning: None,
+        },
+        "reconnect-wifi" if context.wifi_device.is_some() => FixAction {
+            id: id.to_string(),
+            title: "Reconnect to current Wi-Fi".to_string(),
+            description:
+                "Toggles the active Wi-Fi radio so macOS rebuilds the current wireless connection."
+                    .to_string(),
+            safety: FixSafety::Moderate,
+            requires_admin: true,
+            commands_preview: Some(vec![
+                format!("networksetup -setairportpower {wifi_device} off"),
+                format!("networksetup -setairportpower {wifi_device} on"),
+            ]),
+            estimated_impact: "Wi-Fi will be unavailable briefly while it reconnects.".to_string(),
+            warning: Some(
+                "This interrupts active downloads, calls, and remote sessions, but does not remove the saved network."
+                    .to_string(),
+            ),
+        },
+        "open-router-settings" if context.gateway.is_some() => FixAction {
+            id: id.to_string(),
+            title: "Open router settings".to_string(),
+            description:
+                "Opens the detected default gateway in your browser so you can check router status or WAN settings."
+                    .to_string(),
+            safety: FixSafety::Safe,
+            requires_admin: false,
+            commands_preview: Some(vec![format!("open http://{gateway}")]),
+            estimated_impact:
+                "Opens your browser. Aegis does not change router settings automatically.".to_string(),
+            warning: None,
+        },
+        "open-captive-portal" => FixAction {
+            id: id.to_string(),
+            title: "Open Wi-Fi sign-in page".to_string(),
+            description:
+                "Opens a connectivity page that can trigger the hotel, office, or public Wi-Fi sign-in screen."
+                    .to_string(),
+            safety: FixSafety::Safe,
+            requires_admin: false,
+            commands_preview: Some(vec![
+                "open http://captive.apple.com/hotspot-detect.html".to_string(),
+            ]),
+            estimated_impact:
+                "Opens a browser. Aegis never captures or submits your sign-in details.".to_string(),
+            warning: Some(
+                "Complete any sign-in or terms step in the browser before returning to Aegis and re-running the scan."
+                    .to_string(),
+            ),
+        },
+        "reset-proxy" if context.active_service.is_some() => FixAction {
+            id: id.to_string(),
+            title: "Disable detected web proxy".to_string(),
+            description:
+                "Turns off manual web and secure web proxy settings for the selected network service."
+                    .to_string(),
+            safety: FixSafety::Moderate,
+            requires_admin: true,
+            commands_preview: Some(vec![
+                format!("networksetup -setwebproxystate {service} off"),
+                format!("networksetup -setsecurewebproxystate {service} off"),
+            ]),
+            estimated_impact: "Apps using the previous proxy may reconnect directly.".to_string(),
+            warning: Some(
+                "Do not use this if your workplace or VPN requires the proxy. Save the existing proxy details first."
+                    .to_string(),
+            ),
         },
         "restart-adapter" => FixAction {
             id: id.to_string(),
@@ -910,7 +1059,7 @@ fn discover_context() -> MacContext {
         parse_airport_network(&output.stdout)
     });
     let route = capture("route", &["-n", "get", "default"], "default route");
-    let (_, route_device) = parse_route(&route.stdout);
+    let (route_gateway, route_device) = parse_route(&route.stdout);
     let service_order = capture(
         "networksetup",
         &["-listnetworkserviceorder"],
@@ -933,6 +1082,7 @@ fn discover_context() -> MacContext {
         wifi_device,
         wifi_service,
         wifi_ssid,
+        gateway: route_gateway.filter(|value| value.parse::<IpAddr>().is_ok()),
     }
 }
 
@@ -996,6 +1146,16 @@ fn command_for_fix(fix_id: &str, context: &MacContext) -> MacCommandResult {
             ))
         })
     };
+    let required_gateway = || {
+        context.gateway.clone().ok_or_else(|| {
+            Box::new(blocked_fix_result(
+                fix_id,
+                "Router address unavailable",
+                "Aegis could not determine a valid default gateway to open safely. Re-run diagnostics and try again.",
+                fix.requires_admin,
+            ))
+        })
+    };
 
     let commands = match fix_id {
         "flush-dns" => vec![
@@ -1006,6 +1166,23 @@ fn command_for_fix(fix_id: &str, context: &MacContext) -> MacCommandResult {
             "ipconfig".to_string(),
             vec!["set".to_string(), required_device()? , "DHCP".to_string()],
         )],
+        "reconnect-wifi" => {
+            let device = required_wifi_device()?;
+            vec![
+                (
+                    "networksetup".to_string(),
+                    vec![
+                        "-setairportpower".to_string(),
+                        device.clone(),
+                        "off".to_string(),
+                    ],
+                ),
+                (
+                    "networksetup".to_string(),
+                    vec!["-setairportpower".to_string(), device, "on".to_string()],
+                ),
+            ]
+        }
         "restart-wlan-service" => {
             let service = required_wifi_service()?;
             vec![
@@ -1060,6 +1237,35 @@ fn command_for_fix(fix_id: &str, context: &MacContext) -> MacCommandResult {
                 vec!["x-apple.systempreferences:com.apple.preference.network".to_string()],
             ),
         ],
+        "open-router-settings" => vec![(
+            "open".to_string(),
+            vec![format!("http://{}", required_gateway()?)],
+        )],
+        "open-captive-portal" => vec![(
+            "open".to_string(),
+            vec!["http://captive.apple.com/hotspot-detect.html".to_string()],
+        )],
+        "reset-proxy" => {
+            let service = required_service()?;
+            vec![
+                (
+                    "networksetup".to_string(),
+                    vec![
+                        "-setwebproxystate".to_string(),
+                        service.clone(),
+                        "off".to_string(),
+                    ],
+                ),
+                (
+                    "networksetup".to_string(),
+                    vec![
+                        "-setsecurewebproxystate".to_string(),
+                        service,
+                        "off".to_string(),
+                    ],
+                ),
+            ]
+        }
         "forget-current-profile" => vec![(
             "networksetup".to_string(),
             vec![
@@ -1280,11 +1486,7 @@ pub fn runtime_health() -> RuntimeHealth {
     }
 }
 
-pub fn run_scan<F>(
-    _scenario_id: Option<String>,
-    run_id: &str,
-    mut emit: F,
-) -> Result<ScanResult, Box<dyn Error>>
+pub fn run_scan<F>(run_id: &str, mut emit: F) -> Result<ScanResult, Box<dyn Error>>
 where
     F: FnMut(ScanProgressEvent),
 {
@@ -1900,6 +2102,7 @@ where
         wifi_device: wifi_device.clone(),
         wifi_service: resolved_wifi_service,
         wifi_ssid: wifi_ssid.clone(),
+        gateway: gateway.clone(),
     };
     let dns_display = if dns_servers.is_empty() {
         "Not reported".to_string()
@@ -1961,7 +2164,7 @@ where
     ) && wifi_present
         && !wifi_connected
     {
-        ("wifi-unavailable", "Wi-Fi is not currently associated", "A wireless interface is present, but macOS is not reporting an active Wi-Fi association.", 86, mac_fixes(&["open-network-settings", "restart-wlan-service"], &selected_context))
+        ("wifi-unavailable", "Wi-Fi is not currently associated", "A wireless interface is present, but macOS is not reporting an active Wi-Fi association.", 86, mac_fixes(&["open-network-settings", "restart-wlan-service", "reconnect-wifi"], &selected_context))
     } else if ip_status == DiagnosticStatus::Failed {
         (
             "dhcp-failure",
@@ -1969,7 +2172,12 @@ where
             "The active macOS interface is up, but it does not have a usable IPv4 address.",
             91,
             mac_fixes(
-                &["renew-dhcp", "restart-adapter", "open-network-settings"],
+                &[
+                    "renew-dhcp",
+                    "restart-adapter",
+                    "reconnect-wifi",
+                    "open-network-settings",
+                ],
                 &selected_context,
             ),
         )
@@ -1980,7 +2188,13 @@ where
             "The device does not have a complete default route to the local gateway.",
             88,
             mac_fixes(
-                &["renew-dhcp", "restart-adapter", "open-network-settings"],
+                &[
+                    "renew-dhcp",
+                    "restart-adapter",
+                    "reconnect-wifi",
+                    "open-router-settings",
+                    "open-network-settings",
+                ],
                 &selected_context,
             ),
         )
@@ -1991,16 +2205,22 @@ where
             "The local route exists, but public endpoint probes consistently failed.",
             86,
             mac_fixes(
-                &["renew-dhcp", "restart-adapter", "open-network-settings"],
+                &[
+                    "renew-dhcp",
+                    "restart-adapter",
+                    "reconnect-wifi",
+                    "open-router-settings",
+                    "open-network-settings",
+                ],
                 &selected_context,
             ),
         )
     } else if dns_status == DiagnosticStatus::Failed {
-        ("dns-failure", "Connected, but DNS is failing", "Public DNS responds, but the configured local DNS path did not resolve the test domain.", 94, mac_fixes(&["flush-dns", "dns-automatic", "set-public-dns"], &selected_context))
+        ("dns-failure", "Connected, but DNS is failing", "Public DNS responds, but the configured local DNS path did not resolve the test domain.", 94, mac_fixes(&["flush-dns", "dns-automatic", "set-public-dns", "open-router-settings"], &selected_context))
     } else if captive_portal {
-        ("captive-portal", "The network may require browser sign-in", "HTTP traffic appears redirected or sign-in related, which is a common captive-portal pattern.", 84, mac_fixes(&["open-network-settings"], &selected_context))
+        ("captive-portal", "The network may require browser sign-in", "HTTP traffic appears redirected or sign-in related, which is a common captive-portal pattern.", 84, mac_fixes(&["open-captive-portal", "open-network-settings"], &selected_context))
     } else if proxy.configured && apps_status == DiagnosticStatus::Failed {
-        ("proxy-app-issue", "Proxy settings may be blocking apps", "Lower-layer connectivity is available, but HTTPS application probes fail while macOS proxy settings are enabled.", 82, mac_fixes(&["open-network-settings"], &selected_context))
+        ("proxy-app-issue", "Proxy settings may be blocking apps", "Lower-layer connectivity is available, but HTTPS application probes fail while macOS proxy settings are enabled.", 82, mac_fixes(&["reset-proxy", "open-network-settings"], &selected_context))
     } else if apps_status == DiagnosticStatus::Failed {
         (
             "apps-endpoint-failure",
@@ -2065,7 +2285,7 @@ where
         node(
             "device", "Device", "Host networking", "monitor", device_status,
             if device_status == DiagnosticStatus::Ok { "macOS diagnostic probes are available." } else { "macOS returned partial system details." },
-            "Aegis stays inside a fixed, read-only probe set and records partial coverage without replacing the scan with mock data.",
+            "Aegis stays inside a fixed, read-only probe set and records partial coverage without discarding the scan.",
             vec![
                 evidence("os", "Operating system", format!("{os_name} {os_version}"), DiagnosticStatus::Ok, None),
                 evidence("admin", "Elevation", if current_process_is_admin() { "Administrator" } else { "Standard user" }, DiagnosticStatus::Ok, Some("Read-only diagnostics do not require administrator access.".to_string())),
@@ -2095,7 +2315,7 @@ where
                 evidence("ssid", "Connected SSID", wifi_ssid.clone().unwrap_or_else(|| "Not connected".to_string()), if wifi_connected { DiagnosticStatus::Ok } else if wifi_present { DiagnosticStatus::Warning } else { DiagnosticStatus::Skipped }, None),
             ],
             vec!["The Mac is out of range or has Wi-Fi turned off", "The access point association did not complete"],
-            if wifi_status == DiagnosticStatus::Warning { mac_fixes(&["restart-wlan-service", "open-network-settings"], &selected_context) } else { Vec::new() },
+            if wifi_status == DiagnosticStatus::Warning { mac_fixes(&["restart-wlan-service", "reconnect-wifi", "open-network-settings"], &selected_context) } else { Vec::new() },
             combine_outputs(&[("Hardware ports", &hardware_out), ("Wi-Fi network", &airport_out)]),
         ),
         node(
@@ -2107,7 +2327,7 @@ where
                 evidence("saved", "Preferred networks", profile_display, if current_profile_saved { DiagnosticStatus::Ok } else if profile_inventory_known { DiagnosticStatus::Warning } else { DiagnosticStatus::Unknown }, None),
             ],
             vec!["The preferred network entry may be stale", "The network may require a fresh association"],
-            if profile_status == DiagnosticStatus::Warning { mac_fixes(&["forget-current-profile", "open-network-settings"], &selected_context) } else { Vec::new() },
+            if profile_status == DiagnosticStatus::Warning { mac_fixes(&["forget-current-profile", "reconnect-wifi", "open-network-settings"], &selected_context) } else { Vec::new() },
             combine_outputs(&[("Wi-Fi network", &airport_out), ("Preferred networks", &preferred_out)]),
         ),
         node(
@@ -2121,7 +2341,7 @@ where
                 evidence("dns", "DNS servers", dns_display.clone(), if dns_servers.is_empty() { DiagnosticStatus::Unknown } else { DiagnosticStatus::Ok }, None),
             ],
             vec!["DHCP did not provide a lease", "The access point or router is not responding to DHCP"],
-            if ip_status == DiagnosticStatus::Failed { mac_fixes(&["renew-dhcp", "restart-adapter", "open-network-settings"], &selected_context) } else { Vec::new() },
+            if ip_status == DiagnosticStatus::Failed { mac_fixes(&["renew-dhcp", "restart-adapter", "reconnect-wifi", "open-network-settings"], &selected_context) } else { Vec::new() },
             combine_outputs(&[("Network service", &network_info_out), ("Active interface", raw_interface_output.unwrap_or(&interface_list_out))]),
         ),
         node(
@@ -2134,7 +2354,7 @@ where
                 evidence("ping", "Gateway probe", if gateway_probe.success { "Responded" } else { "No response" }, if gateway_probe.success { DiagnosticStatus::Ok } else { DiagnosticStatus::Warning }, None),
             ],
             vec!["The router may be offline", "The local route may be stale or incomplete"],
-            if matches!(gateway_status, DiagnosticStatus::Failed | DiagnosticStatus::Warning) { mac_fixes(&["renew-dhcp", "restart-adapter", "open-network-settings"], &selected_context) } else { Vec::new() },
+            if matches!(gateway_status, DiagnosticStatus::Failed | DiagnosticStatus::Warning) { mac_fixes(&["renew-dhcp", "restart-adapter", "reconnect-wifi", "open-router-settings", "open-network-settings"], &selected_context) } else { Vec::new() },
             gateway_raw,
         ),
         node(
@@ -2147,7 +2367,7 @@ where
                 evidence("quad9", "9.9.9.9:443", if internet_tertiary.success { "Reachable" } else { "No response" }, if internet_tertiary.success { DiagnosticStatus::Ok } else { DiagnosticStatus::Warning }, None),
             ],
             vec!["The ISP or upstream router may be unavailable", "A VPN or firewall may be blocking outbound traffic"],
-            if internet_status == DiagnosticStatus::Failed { mac_fixes(&["renew-dhcp", "restart-adapter", "open-network-settings"], &selected_context) } else { Vec::new() },
+            if internet_status == DiagnosticStatus::Failed { mac_fixes(&["renew-dhcp", "restart-adapter", "reconnect-wifi", "open-router-settings", "open-network-settings"], &selected_context) } else { Vec::new() },
             internet_raw,
         ),
         node(
@@ -2160,7 +2380,7 @@ where
                 evidence("public", "Public comparison", if public_dns_ok { "Resolved" } else { "Failed" }, if public_dns_ok { DiagnosticStatus::Ok } else { DiagnosticStatus::Warning }, None),
             ],
             vec!["The router DNS forwarder may be stuck", "A stale cache or filtering tool may be interfering"],
-            if dns_status == DiagnosticStatus::Failed { mac_fixes(&["flush-dns", "dns-automatic", "set-public-dns"], &selected_context) } else { Vec::new() },
+            if dns_status == DiagnosticStatus::Failed { mac_fixes(&["flush-dns", "dns-automatic", "set-public-dns", "open-router-settings"], &selected_context) } else { Vec::new() },
             dns_raw,
         ),
         node(
@@ -2172,7 +2392,16 @@ where
                 evidence("portal", "Captive portal", if captive_portal { "Suspected" } else { "Not detected" }, if captive_portal { DiagnosticStatus::Warning } else { DiagnosticStatus::Ok }, http_status.map(|status| format!("HTTP {status}"))),
             ],
             vec!["A captive portal may require browser sign-in", "A manual proxy may be unavailable"],
-            if captive_portal || (proxy.configured && apps_status == DiagnosticStatus::Failed) { mac_fixes(&["open-network-settings"], &selected_context) } else { Vec::new() },
+            if captive_portal || (proxy.configured && apps_status == DiagnosticStatus::Failed) {
+                let mut fixes = mac_fixes(&["open-network-settings"], &selected_context);
+                if captive_portal {
+                    fixes.extend(mac_fixes(&["open-captive-portal"], &selected_context));
+                }
+                if proxy.configured && apps_status == DiagnosticStatus::Failed {
+                    fixes.extend(mac_fixes(&["reset-proxy"], &selected_context));
+                }
+                fixes
+            } else { Vec::new() },
             os_raw,
         ),
         node(
@@ -2184,7 +2413,13 @@ where
                 evidence("github", "GitHub HTTPS", if app_secondary.success { app_secondary.stdout.trim() } else { "Failed" }, if app_secondary.success { DiagnosticStatus::Ok } else { DiagnosticStatus::Warning }, None),
             ],
             vec!["Proxy or filtering software may affect applications", "An application-specific service may be unavailable"],
-            if apps_status == DiagnosticStatus::Failed { mac_fixes(&["open-network-settings"], &selected_context) } else { Vec::new() },
+            if apps_status == DiagnosticStatus::Failed {
+                let mut fixes = mac_fixes(&["open-network-settings"], &selected_context);
+                if proxy.configured {
+                    fixes.extend(mac_fixes(&["reset-proxy"], &selected_context));
+                }
+                fixes
+            } else { Vec::new() },
             apps_raw,
         ),
     ];
@@ -2208,6 +2443,10 @@ where
             &node.summary,
         );
     }
+    if crate::diagnostics::scan_cancelled() {
+        return Err("Diagnostic scan cancelled or exceeded its time budget".into());
+    }
+
     emit(progress_event(
         run_id,
         "scan-finished",
@@ -2311,6 +2550,7 @@ mod tests {
             wifi_device: Some("en0".to_string()),
             wifi_service: Some("Wi-Fi".to_string()),
             wifi_ssid: Some("Office".to_string()),
+            gateway: Some("192.168.1.1".to_string()),
         };
 
         let (_, wireless_commands) = command_for_fix("restart-wlan-service", &context).unwrap();
@@ -2318,6 +2558,29 @@ mod tests {
 
         let (_, active_commands) = command_for_fix("restart-adapter", &context).unwrap();
         assert_eq!(active_commands[0].1[1], "USB 10/100/1000 LAN");
+
+        let (_, reconnect_commands) = command_for_fix("reconnect-wifi", &context).unwrap();
+        assert_eq!(
+            reconnect_commands[0].1,
+            vec![
+                "-setairportpower".to_string(),
+                "en0".to_string(),
+                "off".to_string()
+            ]
+        );
+
+        let (_, router_commands) = command_for_fix("open-router-settings", &context).unwrap();
+        assert_eq!(router_commands[0].1, vec!["http://192.168.1.1".to_string()]);
+
+        let (_, captive_commands) = command_for_fix("open-captive-portal", &context).unwrap();
+        assert_eq!(
+            captive_commands[0].1,
+            vec!["http://captive.apple.com/hotspot-detect.html".to_string()]
+        );
+
+        let (_, proxy_commands) = command_for_fix("reset-proxy", &context).unwrap();
+        assert_eq!(proxy_commands[0].1[0], "-setwebproxystate");
+        assert_eq!(proxy_commands[0].1[1], "USB 10/100/1000 LAN");
     }
 
     #[test]

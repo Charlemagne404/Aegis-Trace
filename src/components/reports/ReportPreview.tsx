@@ -13,7 +13,7 @@ type ReportPreviewProps = {
 export function ReportPreview({ scan, exportError, onClose, onExport }: ReportPreviewProps) {
   const sourceLabel = scan.mode === "real"
     ? `Live ${platformLabel(scanPlatform(scan))} scan`
-    : "Local preview data";
+    : "Test fixture";
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/72 p-4 backdrop-blur-xl">

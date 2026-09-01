@@ -32,7 +32,7 @@ export function detectBrowserPlatform(): PlatformId {
 }
 
 export function isLivePlatform(platform: PlatformId): boolean {
-  return platform === "windows" || platform === "macos";
+  return platform === "windows" || platform === "macos" || platform === "linux";
 }
 
 export function platformLabel(platform: PlatformId, fallback = "Unknown platform"): string {

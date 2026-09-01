@@ -15,10 +15,10 @@ describe("platform helpers", () => {
     expect(normalizePlatform("Plan 9")).toBe("unknown");
   });
 
-  it("only treats Windows and macOS as live native adapters for now", () => {
+  it("treats supported desktop adapters as live native targets", () => {
     expect(isLivePlatform("windows")).toBe(true);
     expect(isLivePlatform("macos")).toBe(true);
-    expect(isLivePlatform("linux")).toBe(false);
+    expect(isLivePlatform("linux")).toBe(true);
     expect(platformLabel("macos")).toBe("macOS");
   });
 

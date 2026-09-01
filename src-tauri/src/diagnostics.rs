@@ -3,11 +3,18 @@
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
+use std::io::Read;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, OnceLock, Weak,
+};
 use std::thread;
 use std::time::{Duration, Instant};
 use sysinfo::{Networks, System, MINIMUM_CPU_UPDATE_INTERVAL};
@@ -320,8 +327,96 @@ struct HttpProbeFact {
 }
 
 const AGGRESSIVE_CONFIRMATION_PHRASE: &str = "RESET";
+const MAX_SCAN_RUNTIME: Duration = Duration::from_secs(120);
+const MAX_CAPTURE_BYTES: usize = 512 * 1024;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanCancellation {
+    cancelled: Arc<AtomicBool>,
+    deadline: Instant,
+}
+
+impl ScanCancellation {
+    fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+            deadline: Instant::now() + MAX_SCAN_RUNTIME,
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire) || Instant::now() >= self.deadline
+    }
+}
+
+static ACTIVE_SCAN_CANCELLATIONS: OnceLock<Mutex<HashMap<String, Weak<AtomicBool>>>> =
+    OnceLock::new();
+
+fn active_scan_cancellations() -> &'static Mutex<HashMap<String, Weak<AtomicBool>>> {
+    ACTIVE_SCAN_CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub(crate) fn register_scan(run_id: &str) -> Result<ScanCancellation, String> {
+    let cancellation = ScanCancellation::new();
+    let mut active = active_scan_cancellations()
+        .lock()
+        .map_err(|_| "Aegis could not access the native scan registry.".to_string())?;
+
+    if active.get(run_id).and_then(Weak::upgrade).is_some() {
+        return Err("A scan with this run ID is already active.".to_string());
+    }
+
+    active.insert(run_id.to_string(), Arc::downgrade(&cancellation.cancelled));
+    Ok(cancellation)
+}
+
+pub(crate) fn cancel_scan(run_id: &str) -> bool {
+    let Ok(mut active) = active_scan_cancellations().lock() else {
+        return false;
+    };
+
+    let Some(flag) = active.get(run_id).and_then(Weak::upgrade) else {
+        active.remove(run_id);
+        return false;
+    };
+
+    flag.store(true, Ordering::Release);
+    true
+}
+
+pub(crate) fn unregister_scan(run_id: &str) {
+    if let Ok(mut active) = active_scan_cancellations().lock() {
+        active.remove(run_id);
+    }
+}
+
+thread_local! {
+    static ACTIVE_SCAN_CANCELLATION: RefCell<Option<ScanCancellation>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn with_scan_cancellation<T>(
+    cancellation: &ScanCancellation,
+    operation: impl FnOnce() -> T,
+) -> T {
+    let previous =
+        ACTIVE_SCAN_CANCELLATION.with(|active| active.replace(Some(cancellation.clone())));
+    let result = operation();
+    ACTIVE_SCAN_CANCELLATION.with(|active| {
+        active.replace(previous);
+    });
+    result
+}
+
+pub(crate) fn scan_cancelled() -> bool {
+    ACTIVE_SCAN_CANCELLATION.with(|active| {
+        active
+            .borrow()
+            .as_ref()
+            .is_some_and(ScanCancellation::is_cancelled)
+    })
+}
 
 fn now_id() -> String {
     let millis = std::time::SystemTime::now()
@@ -407,6 +502,86 @@ fn fix_action(id: &str) -> Option<FixAction> {
             commands_preview: Some(vec!["start ms-settings:network".to_string()]),
             estimated_impact: "No settings are changed automatically.".to_string(),
             warning: None,
+        }),
+        "open-device-manager" => Some(FixAction {
+            id: id.to_string(),
+            title: "Open Device Manager".to_string(),
+            description:
+                "Opens Device Manager so you can check whether the wireless adapter is disabled or missing a driver."
+                    .to_string(),
+            safety: FixSafety::Safe,
+            requires_admin: false,
+            commands_preview: Some(vec!["devmgmt.msc".to_string()]),
+            estimated_impact:
+                "Opens a Windows administration window. No device is changed automatically."
+                    .to_string(),
+            warning: None,
+        }),
+        "reconnect-wifi" => Some(FixAction {
+            id: id.to_string(),
+            title: "Reconnect to current Wi-Fi".to_string(),
+            description:
+                "Disconnects and reconnects the active Wi-Fi connection while keeping its saved profile."
+                    .to_string(),
+            safety: FixSafety::Moderate,
+            requires_admin: false,
+            commands_preview: Some(vec![
+                "netsh wlan disconnect".to_string(),
+                "netsh wlan connect name=\"<SSID>\"".to_string(),
+            ]),
+            estimated_impact:
+                "Wi-Fi will be unavailable briefly while the connection is rebuilt.".to_string(),
+            warning: Some(
+                "This interrupts active downloads, calls, and remote sessions, but does not delete the saved profile."
+                    .to_string(),
+            ),
+        }),
+        "open-router-settings" => Some(FixAction {
+            id: id.to_string(),
+            title: "Open router settings".to_string(),
+            description:
+                "Opens the detected default gateway in your browser so you can check router status or WAN settings."
+                    .to_string(),
+            safety: FixSafety::Safe,
+            requires_admin: false,
+            commands_preview: Some(vec!["start http://<gateway>".to_string()]),
+            estimated_impact:
+                "Opens your browser. Aegis does not change router settings automatically.".to_string(),
+            warning: None,
+        }),
+        "open-captive-portal" => Some(FixAction {
+            id: id.to_string(),
+            title: "Open Wi-Fi sign-in page".to_string(),
+            description:
+                "Opens a connectivity page that can trigger the hotel, office, or public Wi-Fi sign-in screen."
+                    .to_string(),
+            safety: FixSafety::Safe,
+            requires_admin: false,
+            commands_preview: Some(vec![
+                "start http://www.msftconnecttest.com/redirect".to_string(),
+            ]),
+            estimated_impact:
+                "Opens a browser. Aegis never captures or submits your sign-in details.".to_string(),
+            warning: Some(
+                "Complete any sign-in or terms step in the browser before returning to Aegis and re-running the scan."
+                    .to_string(),
+            ),
+        }),
+        "reset-proxy" => Some(FixAction {
+            id: id.to_string(),
+            title: "Clear WinHTTP proxy".to_string(),
+            description:
+                "Clears the detected manual WinHTTP proxy so services can try a direct connection again."
+                    .to_string(),
+            safety: FixSafety::Moderate,
+            requires_admin: false,
+            commands_preview: Some(vec!["netsh winhttp reset proxy".to_string()]),
+            estimated_impact: "WinHTTP clients using the previous proxy may reconnect directly."
+                .to_string(),
+            warning: Some(
+                "Do not use this if your workplace or VPN requires the proxy. Save the existing proxy details first."
+                    .to_string(),
+            ),
         }),
         "restart-adapter" => Some(FixAction {
             id: id.to_string(),
@@ -645,30 +820,85 @@ fn run_process(
     command.creation_flags(CREATE_NO_WINDOW);
 
     let mut child = command.spawn()?;
+    let stdout_reader = child
+        .stdout
+        .take()
+        .map(|mut stream| thread::spawn(move || read_process_output(&mut stream)));
+    let stderr_reader = child
+        .stderr
+        .take()
+        .map(|mut stream| thread::spawn(move || read_process_output(&mut stream)));
 
     let start = Instant::now();
     loop {
-        if child.try_wait()?.is_some() {
-            let output = child.wait_with_output()?;
+        if scan_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let process_stderr = join_process_output(stderr_reader);
             return Ok(CommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                success: output.status.success(),
+                stdout: join_process_output(stdout_reader),
+                stderr: if process_stderr.trim().is_empty() {
+                    "Scan cancelled or exceeded its time budget".to_string()
+                } else {
+                    format!("{process_stderr}\nScan cancelled or exceeded its time budget")
+                },
+                success: false,
+            });
+        }
+
+        if child.try_wait()?.is_some() {
+            let status = child.wait()?;
+            return Ok(CommandOutput {
+                stdout: join_process_output(stdout_reader),
+                stderr: join_process_output(stderr_reader),
+                success: status.success(),
             });
         }
 
         if start.elapsed() > timeout {
             let _ = child.kill();
-            let output = child.wait_with_output()?;
+            let _ = child.wait();
+            let process_stderr = join_process_output(stderr_reader);
             return Ok(CommandOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: "Command timed out".to_string(),
+                stdout: join_process_output(stdout_reader),
+                stderr: if process_stderr.trim().is_empty() {
+                    "Command timed out".to_string()
+                } else {
+                    format!("{process_stderr}\nCommand timed out")
+                },
                 success: false,
             });
         }
 
         thread::sleep(Duration::from_millis(50));
     }
+}
+
+fn read_process_output<R: Read>(reader: &mut R) -> Vec<u8> {
+    let mut captured = Vec::new();
+    let mut buffer = [0_u8; 8 * 1024];
+
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(bytes_read) => {
+                if captured.len() < MAX_CAPTURE_BYTES {
+                    let remaining = MAX_CAPTURE_BYTES - captured.len();
+                    captured.extend_from_slice(&buffer[..bytes_read.min(remaining)]);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    captured
+}
+
+fn join_process_output(handle: Option<thread::JoinHandle<Vec<u8>>>) -> String {
+    handle
+        .and_then(|handle| handle.join().ok())
+        .map(|bytes| String::from_utf8_lossy(&bytes).to_string())
+        .unwrap_or_default()
 }
 
 fn powershell(command: &str) -> Result<CommandOutput, Box<dyn Error>> {
@@ -1181,6 +1411,10 @@ fn skipped_command_output(label: &str, reason: &str) -> CommandOutput {
 }
 
 fn powershell_capture(command: &str, label: &str) -> CommandOutput {
+    if scan_cancelled() {
+        return failed_command_output(label, "scan cancelled or exceeded its time budget");
+    }
+
     powershell(command).unwrap_or_else(|error| failed_command_output(label, error))
 }
 
@@ -1193,6 +1427,10 @@ fn powershell_capture_with_retry(command: &str, label: &str, attempts: usize) ->
     let mut last_output = None;
 
     for attempt in 0..total_attempts {
+        if scan_cancelled() {
+            return failed_command_output(label, "scan cancelled or exceeded its time budget");
+        }
+
         let output = powershell_capture(command, label);
         let should_retry = attempt + 1 < total_attempts && command_output_is_inconclusive(&output);
 
@@ -1296,6 +1534,7 @@ fn contextual_fix_action(
     id: &str,
     adapter_alias: Option<&str>,
     wifi_profile: Option<&str>,
+    gateway: Option<&str>,
 ) -> FixAction {
     let mut action = known_fix_action(id);
 
@@ -1308,6 +1547,7 @@ fn contextual_fix_action(
                 command
                     .replace("<adapter>", adapter_display)
                     .replace("<SSID>", profile_display)
+                    .replace("<gateway>", placeholder_or(gateway, "<gateway>"))
             })
             .collect();
     }
@@ -1695,236 +1935,14 @@ fn node_checks(id: &str) -> Vec<&'static str> {
     }
 }
 
-fn simple_mock_scan() -> ScanResult {
-    let nodes = vec![
-        node(
-            "device",
-            "Device",
-            "monitor",
-            DiagnosticStatus::Ok,
-            "Aegis is running without a native diagnostics adapter.",
-            "Mock scenarios remain available so the full timeline can still be previewed.",
-            node_checks("device"),
-            vec![
-                evidence(
-                    "os",
-                    "Operating system",
-                    std::env::consts::OS,
-                    DiagnosticStatus::Ok,
-                    None,
-                ),
-                evidence(
-                    "mode",
-                    "Backend mode",
-                    "Mock fallback",
-                    DiagnosticStatus::Warning,
-                    Some("Native live diagnostics are currently available in the Windows and macOS Tauri builds."),
-                ),
-            ],
-            vec![],
-            None,
-        ),
-        node(
-            "adapter",
-            "Adapter",
-            "network",
-            DiagnosticStatus::Skipped,
-            "Real adapter inventory is unavailable here.",
-            "Use demo mode or run a supported Windows or macOS build to inspect adapter state.",
-            node_checks("adapter"),
-            vec![evidence(
-                "platform",
-                "Platform",
-                "Unsupported native platform fallback",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "wifi",
-            "Wi-Fi",
-            "wifi",
-            DiagnosticStatus::Skipped,
-            "Wireless service checks are unavailable here.",
-            "The frontend mock scenarios still cover Wi-Fi failures.",
-            node_checks("wifi"),
-            vec![evidence(
-                "service",
-                "Wireless management",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "profile",
-            "Profile",
-            "id-card",
-            DiagnosticStatus::Skipped,
-            "Wi-Fi profile checks are unavailable here.",
-            "Aegis never requests or exports saved Wi-Fi passwords.",
-            node_checks("profile"),
-            vec![evidence(
-                "profile",
-                "Current profile",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "ip",
-            "IP Address",
-            "binary",
-            DiagnosticStatus::Skipped,
-            "Live IP checks are unavailable here.",
-            "Switch to a Windows machine or use a mock scenario for IP failures.",
-            node_checks("ip"),
-            vec![evidence(
-                "ipv4",
-                "IPv4 address",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "gateway",
-            "Gateway",
-            "router",
-            DiagnosticStatus::Skipped,
-            "Gateway reachability is unavailable here.",
-            "The full timeline remains visible so UI development stays mock-first.",
-            node_checks("gateway"),
-            vec![evidence(
-                "gateway",
-                "Default gateway",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "internet",
-            "Internet",
-            "globe",
-            DiagnosticStatus::Skipped,
-            "External reachability checks are unavailable here.",
-            "Mock scenarios remain the supported path outside Windows.",
-            node_checks("internet"),
-            vec![evidence(
-                "internet",
-                "External endpoint",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "dns",
-            "DNS",
-            "search-check",
-            DiagnosticStatus::Skipped,
-            "Live DNS checks are unavailable here.",
-            "Aegis keeps its full diagnostic UI active by falling back to mock data.",
-            node_checks("dns"),
-            vec![evidence(
-                "dns",
-                "Name resolution",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "windows",
-            "OS Status",
-            "badge-check",
-            DiagnosticStatus::Skipped,
-            "Windows profile and proxy checks are unavailable here.",
-            "Those probes are intentionally isolated to the Windows backend.",
-            node_checks("windows"),
-            vec![evidence(
-                "windows",
-                "Windows profile",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-        node(
-            "apps",
-            "Apps",
-            "app-window",
-            DiagnosticStatus::Skipped,
-            "Application reachability checks are unavailable here.",
-            "Use mock scenarios to preview app-layer failures on non-Windows systems.",
-            node_checks("apps"),
-            vec![evidence(
-                "apps",
-                "HTTPS check",
-                "Not queried",
-                DiagnosticStatus::Unknown,
-                None,
-            )],
-            vec![],
-            None,
-        ),
-    ];
-
-    ScanResult {
-        id: now_id(),
-        created_at: now_iso(),
-        mode: "mock".to_string(),
-        overall_status: DiagnosticStatus::Warning,
-        diagnosis: OverallDiagnosis {
-            id: "non-windows-fallback".to_string(),
-            title: "Demo mode active".to_string(),
-            summary: "Live diagnostics are not available on this platform yet. The full mock timeline remains available.".to_string(),
-            confidence: 100,
-            severity: Severity::Info,
-            primary_failed_node_id: None,
-            recommended_fixes: vec![],
-        },
-        nodes,
-        environment: Environment {
-            platform: std::env::consts::OS.to_string(),
-            os: std::env::consts::OS.to_string(),
-            hostname: hostname(),
-            app_version: "0.1.0".to_string(),
-            is_admin: Some(false),
-        },
-    }
-}
-
-pub fn run_windows_scan<F>(
-    _scenario_id: Option<String>,
-    run_id: &str,
-    mut emit_progress: F,
-) -> Result<ScanResult, Box<dyn Error>>
+pub fn run_windows_scan<F>(run_id: &str, mut emit_progress: F) -> Result<ScanResult, Box<dyn Error>>
 where
     F: FnMut(ScanProgressEvent),
 {
     emit_scan_started(&mut emit_progress, run_id);
 
     if !cfg!(target_os = "windows") {
-        return Ok(simple_mock_scan());
+        return Err("The Windows diagnostic adapter is unavailable on this target.".into());
     }
 
     emit_node_started(
@@ -2942,7 +2960,30 @@ where
         .and_then(|fact| fact.interface_alias.as_deref())
         .or_else(|| primary_adapter.map(|adapter| adapter.name.as_str()));
     let selected_profile = wifi_profile_name.as_deref();
-    let fix = |id: &str| contextual_fix_action(id, selected_adapter_alias, selected_profile);
+    let fix = |id: &str| {
+        contextual_fix_action(
+            id,
+            selected_adapter_alias,
+            selected_profile,
+            gateway.as_deref(),
+        )
+    };
+    let add_contextual_options =
+        |mut fixes: Vec<FixAction>, reconnect: bool, router: bool, proxy: bool, captive: bool| {
+            if reconnect && wifi_profile_name.is_some() {
+                fixes.push(fix("reconnect-wifi"));
+            }
+            if router && gateway.is_some() {
+                fixes.push(fix("open-router-settings"));
+            }
+            if proxy && proxy_fact.winhttp_mode.eq_ignore_ascii_case("manual") {
+                fixes.push(fix("reset-proxy"));
+            }
+            if captive {
+                fixes.push(fix("open-captive-portal"));
+            }
+            fixes
+        };
 
     let prefix_detail = prefix_length
         .as_ref()
@@ -3051,7 +3092,7 @@ where
                     } else {
                         DiagnosticStatus::Warning
                     },
-                    Some("Aegis keeps partial data instead of falling back to mock output when a single probe is noisy."),
+                    Some("Aegis keeps partial data instead of discarding the scan when a single probe is noisy."),
                 ),
             ],
             vec![],
@@ -3118,7 +3159,11 @@ where
                 ),
             ],
             if matches!(adapter_status, DiagnosticStatus::Failed) {
-                vec![fix("open-network-settings"), fix("generate-wlan-report")]
+                vec![
+                    fix("open-device-manager"),
+                    fix("open-network-settings"),
+                    fix("generate-wlan-report"),
+                ]
             } else {
                 vec![]
             },
@@ -3200,7 +3245,13 @@ where
                 ),
             ],
             if matches!(wifi_status, DiagnosticStatus::Failed) {
-                vec![fix("restart-wlan-service"), fix("open-network-settings")]
+                add_contextual_options(
+                    vec![fix("restart-wlan-service"), fix("open-network-settings")],
+                    true,
+                    false,
+                    false,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -3264,7 +3315,13 @@ where
                 ),
             ],
             if matches!(profile_status, DiagnosticStatus::Warning) {
-                vec![fix("forget-current-profile"), fix("open-network-settings")]
+                add_contextual_options(
+                    vec![fix("forget-current-profile"), fix("open-network-settings")],
+                    true,
+                    false,
+                    false,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -3355,7 +3412,13 @@ where
                 ),
             ],
             if matches!(ip_status, DiagnosticStatus::Failed) {
-                vec![fix("renew-dhcp"), fix("restart-adapter"), fix("open-network-settings")]
+                add_contextual_options(
+                    vec![fix("renew-dhcp"), fix("restart-adapter"), fix("open-network-settings")],
+                    true,
+                    false,
+                    false,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -3449,7 +3512,13 @@ where
                 ),
             ],
             if matches!(gateway_status, DiagnosticStatus::Failed) {
-                vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")]
+                add_contextual_options(
+                    vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")],
+                    true,
+                    true,
+                    false,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -3550,7 +3619,13 @@ where
                 ),
             ],
             if matches!(internet_status, DiagnosticStatus::Failed) {
-                vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")]
+                add_contextual_options(
+                    vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")],
+                    true,
+                    true,
+                    false,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -3652,7 +3727,7 @@ where
                 ),
             ],
             if matches!(dns_status, DiagnosticStatus::Failed) {
-                if local_dns_only_failure {
+                let fixes = if local_dns_only_failure {
                     vec![
                         fix("flush-dns"),
                         fix("dns-automatic"),
@@ -3661,7 +3736,8 @@ where
                     ]
                 } else {
                     vec![fix("flush-dns"), fix("renew-dhcp"), fix("dns-automatic")]
-                }
+                };
+                add_contextual_options(fixes, true, true, false, false)
             } else {
                 vec![]
             },
@@ -3763,7 +3839,13 @@ where
                 ),
             ],
             if (proxy_configured && !windows_proxy_only) || captive_portal_suspected {
-                vec![fix("open-network-settings"), fix("generate-wlan-report")]
+                add_contextual_options(
+                    vec![fix("open-network-settings"), fix("generate-wlan-report")],
+                    false,
+                    false,
+                    proxy_configured && !windows_proxy_only,
+                    captive_portal_suspected,
+                )
             } else {
                 vec![]
             },
@@ -3879,7 +3961,13 @@ where
                 ),
             ],
             if matches!(apps_status, DiagnosticStatus::Failed | DiagnosticStatus::Warning) {
-                vec![fix("open-network-settings"), fix("generate-wlan-report")]
+                add_contextual_options(
+                    vec![fix("open-network-settings"), fix("generate-wlan-report")],
+                    false,
+                    false,
+                    proxy_configured && !windows_proxy_only,
+                    false,
+                )
             } else {
                 vec![]
             },
@@ -4081,7 +4169,11 @@ where
             "No usable network adapter detected",
             "Windows did not expose a healthy active adapter for the current route.",
             adjust_confidence(94),
-            vec![fix("open-network-settings"), fix("generate-wlan-report")],
+            vec![
+                fix("open-device-manager"),
+                fix("open-network-settings"),
+                fix("generate-wlan-report"),
+            ],
         )
     } else if has_wifi_adapter && wlan_service.is_some() && !wifi_service_running {
         (
@@ -4089,7 +4181,13 @@ where
                 "Windows Wi-Fi service is not running",
                 "WLAN AutoConfig is stopped or unavailable, so wireless diagnostics cannot complete cleanly.",
                 adjust_confidence(95),
-                vec![fix("restart-wlan-service"), fix("open-network-settings")],
+                add_contextual_options(
+                    vec![fix("restart-wlan-service"), fix("open-network-settings")],
+                    true,
+                    false,
+                    false,
+                    false,
+                ),
             )
     } else if matches!(profile_status, DiagnosticStatus::Warning) {
         (
@@ -4097,7 +4195,13 @@ where
                 "The Wi-Fi profile looks stale or inconsistent",
                 "The interface is associated, but the saved wireless profile does not line up cleanly with the active network.",
                 adjust_confidence(84),
-                vec![fix("forget-current-profile"), fix("open-network-settings")],
+                add_contextual_options(
+                    vec![fix("forget-current-profile"), fix("open-network-settings")],
+                    true,
+                    false,
+                    false,
+                    false,
+                ),
             )
     } else if matches!(ip_status, DiagnosticStatus::Failed) {
         (
@@ -4105,11 +4209,17 @@ where
             "Connected adapter, but no valid IP address",
             "Windows did not report a usable IPv4 address on the active interface.",
             adjust_confidence(if has_apipa { 96 } else { 91 }),
-            vec![
-                fix("renew-dhcp"),
-                fix("restart-adapter"),
-                fix("open-network-settings"),
-            ],
+            add_contextual_options(
+                vec![
+                    fix("renew-dhcp"),
+                    fix("restart-adapter"),
+                    fix("open-network-settings"),
+                ],
+                true,
+                false,
+                false,
+                false,
+            ),
         )
     } else if matches!(gateway_status, DiagnosticStatus::Failed) {
         (
@@ -4117,7 +4227,13 @@ where
                 "Local gateway is not responding",
                 "The adapter has a route, but the default gateway did not answer when the rest of the path also looked broken.",
                 adjust_confidence(88),
-                vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")],
+                add_contextual_options(
+                    vec![fix("renew-dhcp"), fix("restart-adapter"), fix("generate-wlan-report")],
+                    true,
+                    true,
+                    false,
+                    false,
+                ),
             )
     } else if matches!(internet_status, DiagnosticStatus::Failed) {
         (
@@ -4125,11 +4241,17 @@ where
             "Router path works, but the internet is unreachable",
             "The local path is present, but every public IP probe failed.",
             adjust_confidence(86),
-            vec![
-                fix("renew-dhcp"),
-                fix("restart-adapter"),
-                fix("generate-wlan-report"),
-            ],
+            add_contextual_options(
+                vec![
+                    fix("renew-dhcp"),
+                    fix("restart-adapter"),
+                    fix("generate-wlan-report"),
+                ],
+                true,
+                true,
+                false,
+                false,
+            ),
         )
     } else if local_dns_only_failure {
         (
@@ -4137,12 +4259,18 @@ where
                 "Connected, but the local DNS path is failing",
                 "Public IP reachability works and the public resolver comparison succeeded, so the failure is likely in local DNS settings or cache.",
                 adjust_confidence(96),
-                vec![
-                    fix("flush-dns"),
-                    fix("dns-automatic"),
-                    fix("set-public-dns"),
-                    fix("renew-dhcp"),
-                ],
+                add_contextual_options(
+                    vec![
+                        fix("flush-dns"),
+                        fix("dns-automatic"),
+                        fix("set-public-dns"),
+                        fix("renew-dhcp"),
+                    ],
+                    true,
+                    true,
+                    false,
+                    false,
+                ),
             )
     } else if matches!(dns_status, DiagnosticStatus::Failed) {
         (
@@ -4150,7 +4278,13 @@ where
             "Connected, but DNS is failing",
             "External IP connectivity works, but local hostname resolution still failed.",
             adjust_confidence(90),
-            vec![fix("flush-dns"), fix("renew-dhcp"), fix("dns-automatic")],
+            add_contextual_options(
+                vec![fix("flush-dns"), fix("renew-dhcp"), fix("dns-automatic")],
+                true,
+                true,
+                false,
+                false,
+            ),
         )
     } else if captive_portal_suspected {
         (
@@ -4158,7 +4292,13 @@ where
             "The network may require browser sign-in",
             "HTTP connectivity appears redirected, which is a strong captive-portal pattern.",
             adjust_confidence(87),
-            vec![fix("open-network-settings"), fix("generate-wlan-report")],
+            add_contextual_options(
+                vec![fix("open-network-settings"), fix("generate-wlan-report")],
+                false,
+                false,
+                false,
+                true,
+            ),
         )
     } else if proxy_configured
         && matches!(
@@ -4171,7 +4311,13 @@ where
                 "Proxy settings may be breaking apps",
                 "Lower-layer connectivity mostly passed, but proxy configuration is present and HTTPS application probes were degraded.",
                 adjust_confidence(82),
-                vec![fix("open-network-settings"), fix("generate-wlan-report")],
+                add_contextual_options(
+                    vec![fix("open-network-settings"), fix("generate-wlan-report")],
+                    false,
+                    false,
+                    true,
+                    false,
+                ),
             )
     } else if windows_false_negative {
         (
@@ -4206,6 +4352,10 @@ where
                 vec![fix("generate-wlan-report"), fix("open-network-settings")],
             )
     };
+
+    if scan_cancelled() {
+        return Err("Diagnostic scan cancelled or exceeded its time budget".into());
+    }
 
     for (index, node) in nodes.iter().enumerate() {
         emit_node_completed(
@@ -4259,6 +4409,7 @@ where
 struct ExecutionContext {
     adapter_alias: Option<String>,
     wifi_profile: Option<String>,
+    gateway: Option<String>,
 }
 
 fn discover_execution_context() -> ExecutionContext {
@@ -4288,6 +4439,9 @@ fn discover_execution_context() -> ExecutionContext {
             .and_then(|fact| fact.interface_alias.clone())
             .or_else(|| adapter.map(|adapter| adapter.name.clone())),
         wifi_profile: wifi_fact.profile.or(wifi_fact.ssid),
+        gateway: primary_ip
+            .and_then(|fact| fact.gateway.clone())
+            .filter(|value| value.parse::<std::net::Ipv4Addr>().is_ok()),
     }
 }
 
@@ -4342,15 +4496,19 @@ pub fn run_allowlisted_fix(
     }
 
     let context = match fix_id {
-        "restart-adapter" | "forget-current-profile" | "dns-automatic" | "set-public-dns" => {
-            discover_execution_context()
-        }
+        "restart-adapter"
+        | "forget-current-profile"
+        | "dns-automatic"
+        | "set-public-dns"
+        | "reconnect-wifi"
+        | "open-router-settings" => discover_execution_context(),
         _ => ExecutionContext::default(),
     };
     let fix = contextual_fix_action(
         fix_id,
         context.adapter_alias.as_deref(),
         context.wifi_profile.as_deref(),
+        context.gateway.as_deref(),
     );
 
     let commands: Vec<(String, Vec<String>)> = match fix_id {
@@ -4383,6 +4541,77 @@ pub fn run_allowlisted_fix(
                 "-NonInteractive".to_string(),
                 "-Command".to_string(),
                 "Start-Process ms-settings:network".to_string(),
+            ],
+        )],
+        "open-device-manager" => vec![(
+            "powershell.exe".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-Command".to_string(),
+                "Start-Process devmgmt.msc".to_string(),
+            ],
+        )],
+        "reconnect-wifi" => {
+            let Some(profile_name) = context.wifi_profile.as_deref() else {
+                return Ok(blocked_fix_result(
+                    fix_id,
+                    "Wi-Fi profile unavailable",
+                    "Aegis could not determine the current Wi-Fi profile to reconnect safely.",
+                    fix.requires_admin,
+                ));
+            };
+
+            vec![
+                (
+                    "netsh.exe".to_string(),
+                    vec!["wlan".to_string(), "disconnect".to_string()],
+                ),
+                (
+                    "netsh.exe".to_string(),
+                    vec![
+                        "wlan".to_string(),
+                        "connect".to_string(),
+                        format!("name={profile_name}"),
+                    ],
+                ),
+            ]
+        }
+        "open-router-settings" => {
+            let Some(gateway) = context.gateway.as_deref() else {
+                return Ok(blocked_fix_result(
+                    fix_id,
+                    "Router address unavailable",
+                    "Aegis could not determine a valid default gateway to open safely. Re-run diagnostics and try again.",
+                    fix.requires_admin,
+                ));
+            };
+            let uri = format!("http://{gateway}");
+            vec![(
+                "powershell.exe".to_string(),
+                vec![
+                    "-NoProfile".to_string(),
+                    "-NonInteractive".to_string(),
+                    "-Command".to_string(),
+                    format!("Start-Process {}", powershell_single_quoted(&uri)),
+                ],
+            )]
+        }
+        "open-captive-portal" => vec![(
+            "powershell.exe".to_string(),
+            vec![
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-Command".to_string(),
+                "Start-Process 'http://www.msftconnecttest.com/redirect'".to_string(),
+            ],
+        )],
+        "reset-proxy" => vec![(
+            "netsh.exe".to_string(),
+            vec![
+                "winhttp".to_string(),
+                "reset".to_string(),
+                "proxy".to_string(),
             ],
         )],
         "restart-adapter" => {
@@ -4612,18 +4841,23 @@ pub fn runtime_health() -> RuntimeHealth {
     if !cfg!(target_os = "windows") {
         return RuntimeHealth {
             checked_at: now_iso(),
-            state: "preview".to_string(),
-            summary: "Preview workspace".to_string(),
-            detail: "Live diagnostics and repair actions are currently available in the Windows and macOS Tauri apps. Linux support is planned."
+            state: "unavailable".to_string(),
+            summary: "Native runtime unavailable".to_string(),
+            detail: "This build does not include a native diagnostics adapter for the current operating system."
                 .to_string(),
             capabilities: RuntimeCapabilities {
-                can_run_timeline_scans: true,
+                can_run_timeline_scans: false,
                 can_run_live_scans: false,
                 can_run_fixes: false,
                 can_export_reports: true,
                 can_collect_system_metrics: true,
             },
-            issues: Vec::new(),
+            issues: vec![RuntimeIssue {
+                id: "unsupported-platform".to_string(),
+                severity: "error".to_string(),
+                title: "Operating system is not supported".to_string(),
+                detail: "Run Aegis Trace on Windows, macOS, or Linux to use live diagnostics.".to_string(),
+            }],
         };
     }
 
@@ -4765,22 +4999,42 @@ pub fn system_metrics() -> SystemMetrics {
 
 #[cfg(test)]
 mod tests {
+    use super::cancel_scan;
     use super::classify_dns_status;
     use super::classify_endpoint_probe_status;
     use super::classify_gateway_status;
     use super::classify_windows_status;
+    use super::contextual_fix_action;
     use super::endpoint_success_count;
     use super::endpoint_tcp_success_count;
+    use super::fix_action;
     use super::join_runtime_problems;
     use super::primary_ip_fact_for_routes;
     use super::proxy_requires_attention;
+    use super::register_scan;
     use super::run_windows_scan;
+    use super::scan_cancelled;
+    use super::unregister_scan;
+    use super::with_scan_cancellation;
     use super::AdapterFact;
     use super::DiagnosticStatus;
     use super::EndpointFact;
     use super::IpFact;
     use super::ProxyFact;
     use super::RouteFact;
+
+    #[test]
+    fn scan_cancellation_registry_stops_the_active_scan_context() {
+        let run_id = format!("{}-cancellation-test", super::now_id());
+        let cancellation = register_scan(&run_id).expect("scan should register");
+
+        assert!(!with_scan_cancellation(&cancellation, scan_cancelled));
+        assert!(cancel_scan(&run_id));
+        assert!(with_scan_cancellation(&cancellation, scan_cancelled));
+
+        unregister_scan(&run_id);
+        assert!(!cancel_scan(&run_id));
+    }
 
     #[test]
     fn joins_runtime_problems_readably() {
@@ -4796,9 +5050,10 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
     #[test]
     fn windows_scan_returns_a_result() {
-        let result = run_windows_scan(None, "test-run", |_| {});
+        let result = run_windows_scan("test-run", |_| {});
         assert!(
             result.is_ok(),
             "run_windows_scan failed: {}",
@@ -4806,6 +5061,30 @@ mod tests {
                 .err()
                 .map(|error| error.to_string())
                 .unwrap_or_else(|| "unknown error".to_string())
+        );
+    }
+
+    #[test]
+    fn new_repair_actions_are_allowlisted_and_contextualized() {
+        for id in [
+            "open-device-manager",
+            "reconnect-wifi",
+            "open-router-settings",
+            "open-captive-portal",
+            "reset-proxy",
+        ] {
+            assert!(fix_action(id).is_some(), "missing fix action: {id}");
+        }
+
+        let router = contextual_fix_action(
+            "open-router-settings",
+            Some("Wi-Fi"),
+            Some("Aegis-Lab"),
+            Some("192.168.1.1"),
+        );
+        assert_eq!(
+            router.commands_preview,
+            Some(vec!["start http://192.168.1.1".to_string()])
         );
     }
 

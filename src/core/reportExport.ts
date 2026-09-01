@@ -41,9 +41,9 @@ function nodeToHtml(node: DiagnosticNode): string {
 }
 
 function scanSourceLabel(scan: ScanResult): string {
-  return scan.mode === "real"
-    ? `Live ${platformLabel(scanPlatform(scan))} scan`
-    : "Local preview data";
+  return scan.mode === "fixture"
+    ? "Test fixture"
+    : `Live ${platformLabel(scanPlatform(scan))} scan`;
 }
 
 function nodeToSummaryBlock(node: DiagnosticNode): string {

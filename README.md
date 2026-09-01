@@ -1,29 +1,28 @@
 # Aegis Trace
 
-Aegis Trace is a mock-first Tauri desktop app for visual Wi-Fi and network diagnostics on Windows and macOS. The product centers on a left-to-right diagnostic timeline that shows where the connection path breaks across:
+Aegis Trace is a production Tauri desktop app for visual Wi-Fi and network diagnostics on Windows, macOS, and Linux. The product centers on a left-to-right diagnostic timeline that shows where the connection path breaks across:
 
 Device -> Adapter -> Wi-Fi -> Profile -> IP Address -> Gateway -> Internet -> DNS -> OS Status -> Apps
 
 ## Current State
 
-The project has a usable React/Tauri shell, a typed cross-platform diagnostic model, realistic mock scenarios, ranked repair recommendations, local report export, and native Windows/macOS adapters for live probes and allowlisted fixes.
+The project has a usable React/Tauri shell, a typed cross-platform diagnostic model, ranked repair recommendations, local report export, and native Windows, macOS, and Linux adapters for live probes and allowlisted fixes.
 
 What is implemented today:
 
 - Timeline-first dashboard with animated scan progression.
 - Normal and Technician modes.
-- Ten mock scenarios for cross-platform development and demos.
+- Live native scans that inspect the current device and stream progress through the timeline.
 - Local scan history with restore-on-load behavior.
 - Repair confirmation flow with command previews and post-fix verification.
 - Local JSON, HTML, and ZIP case-file export.
-- Tauri v2 command surface for live Windows and macOS scans, report export, and allowlisted fix execution.
-- Windows and macOS compile/test validation in GitHub Actions.
+- Tauri v2 command surface for live Windows, macOS, and Linux scans, report export, and allowlisted fix execution.
+- Windows, macOS, and Linux compile/test validation in GitHub Actions.
 
 What is still limited:
 
-- Real diagnostics and repair execution work in the Windows and macOS Tauri runtimes.
-- Linux currently compiles through the explicit unsupported-platform boundary and uses mock/preview data; a native Linux adapter is planned.
-- Browser development mode falls back to preview or mock data and does not execute live fixes.
+- Real diagnostics and repair execution work in the Windows, macOS, and Linux Tauri runtimes. Linux uses the standard `ip`, `nmcli`, `resolvectl`, `getent`, `ping`, and `curl` toolchain where available, and clearly records partial coverage when a distribution omits an optional tool.
+- The browser entry point serves the product site; live diagnostics and repairs require the installed Tauri desktop app.
 - Runtime validation on real Windows hardware is still needed for broader confidence.
 - Code-signing and polished release automation are scaffolded, not finished.
 
@@ -47,7 +46,7 @@ Install dependencies:
 npm install
 ```
 
-Run the browser preview:
+Run the product site locally:
 
 ```bash
 npm run dev
@@ -71,16 +70,16 @@ Run the Tauri desktop app on the current host:
 npm run tauri dev
 ```
 
-Windows validation runs in [`.github/workflows/windows-validate.yml`](./.github/workflows/windows-validate.yml), and macOS validation runs in [`.github/workflows/macos-validate.yml`](./.github/workflows/macos-validate.yml). They cover frontend tests/builds and native Rust checks on their target runners, but they do not replace live runtime testing on real Wi-Fi hardware.
+Windows validation runs in [`.github/workflows/windows-validate.yml`](./.github/workflows/windows-validate.yml), macOS validation runs in [`.github/workflows/macos-validate.yml`](./.github/workflows/macos-validate.yml), and Linux validation runs in [`.github/workflows/linux-validate.yml`](./.github/workflows/linux-validate.yml). They cover frontend tests/builds and native Rust checks on their target runners, but they do not replace live runtime testing on real Wi-Fi hardware.
 
 ## Project Layout
 
 ```text
 src/
   components/     React UI for dashboard, timeline, details, fixes, reports, and settings
-  core/           typed models, mock scenarios, scoring, report export, history, repair verification
+  core/           typed models, scoring, report export, history, repair verification
   hooks/          scan orchestration and footer metrics
-  platform/       browser/mock/Tauri adapters
+  platform/       native Tauri adapter and environment detection
 
 src-tauri/
   src/            Tauri commands, shared types, and native platform adapters
@@ -89,7 +88,7 @@ src-tauri/
   tauri.windows.release.conf.json optional signing overlay
 ```
 
-See [`docs/platform-support.md`](./docs/platform-support.md) for the Windows/macOS support matrix and the Linux adapter boundary.
+See [`docs/platform-support.md`](./docs/platform-support.md) for the platform support matrix.
 
 ## Windows Packaging
 

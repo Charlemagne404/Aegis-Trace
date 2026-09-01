@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createMockScanResult } from "./mockData";
+import { createScenarioScanResult } from "./diagnosticScenarios";
 
 describe("diagnosis scoring", () => {
   it("identifies DNS failure after external IP connectivity passes", () => {
-    const scan = createMockScanResult("dns-failure");
+    const scan = createScenarioScanResult("dns-failure");
 
     expect(scan.diagnosis.id).toBe("dns-failure");
     expect(scan.diagnosis.primaryFailedNodeId).toBe("dns");
@@ -12,7 +12,7 @@ describe("diagnosis scoring", () => {
   });
 
   it("identifies DHCP/APIPA failure at the IP node", () => {
-    const scan = createMockScanResult("dhcp-apipa");
+    const scan = createScenarioScanResult("dhcp-apipa");
 
     expect(scan.diagnosis.id).toBe("dhcp-failure");
     expect(scan.diagnosis.primaryFailedNodeId).toBe("ip");
@@ -23,7 +23,7 @@ describe("diagnosis scoring", () => {
   });
 
   it("does not recommend repairs for a healthy connection", () => {
-    const scan = createMockScanResult("healthy");
+    const scan = createScenarioScanResult("healthy");
 
     expect(scan.diagnosis.id).toBe("healthy");
     expect(scan.overallStatus).toBe("ok");

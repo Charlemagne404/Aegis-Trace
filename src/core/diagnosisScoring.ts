@@ -108,7 +108,11 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 94,
       severity: "high",
       primaryFailedNodeId: "adapter",
-      fixes: getFixActions(["open-network-settings", "generate-wlan-report"])
+      fixes: getFixActions([
+        "open-device-manager",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -121,7 +125,11 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 93,
       severity: "high",
       primaryFailedNodeId: "wifi",
-      fixes: getFixActions(["restart-wlan-service", "open-network-settings"])
+      fixes: getFixActions([
+        "restart-wlan-service",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -134,7 +142,13 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: hasEvidence(ip, "169.254") ? 95 : 88,
       severity: "high",
       primaryFailedNodeId: "ip",
-      fixes: getFixActions(["renew-dhcp", "restart-adapter", "open-network-settings"])
+      fixes: getFixActions([
+        "renew-dhcp",
+        "reconnect-wifi",
+        "restart-adapter",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -147,7 +161,14 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 86,
       severity: "high",
       primaryFailedNodeId: "gateway",
-      fixes: getFixActions(["renew-dhcp", "restart-adapter", "open-network-settings"])
+      fixes: getFixActions([
+        "renew-dhcp",
+        "reconnect-wifi",
+        "restart-adapter",
+        "open-router-settings",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -160,7 +181,14 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 84,
       severity: "high",
       primaryFailedNodeId: "internet",
-      fixes: getFixActions(["renew-dhcp", "generate-wlan-report", "open-network-settings"])
+      fixes: getFixActions([
+        "renew-dhcp",
+        "reconnect-wifi",
+        "restart-adapter",
+        "open-router-settings",
+        "generate-wlan-report",
+        "open-network-settings"
+      ])
     });
   }
 
@@ -177,7 +205,9 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
         "flush-dns",
         "renew-dhcp",
         "dns-automatic",
-        "set-public-dns"
+        "set-public-dns",
+        "open-router-settings",
+        "open-network-settings"
       ])
     });
   }
@@ -194,7 +224,11 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 74,
       severity: "medium",
       primaryFailedNodeId: "apps",
-      fixes: getFixActions(["open-network-settings", "generate-wlan-report"])
+      fixes: getFixActions([
+        "reset-proxy",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -212,7 +246,11 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 69,
       severity: "medium",
       primaryFailedNodeId: "windows",
-      fixes: getFixActions(["flush-dns", "open-network-settings", "generate-wlan-report"])
+      fixes: getFixActions([
+        "flush-dns",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 
@@ -225,7 +263,11 @@ export function generateOverallDiagnosis(nodes: DiagnosticNode[]): OverallDiagno
       confidence: 67,
       severity: "medium",
       primaryFailedNodeId: windows?.status === "warning" ? "windows" : "apps",
-      fixes: getFixActions(["open-network-settings"])
+      fixes: getFixActions([
+        "open-captive-portal",
+        "open-network-settings",
+        "generate-wlan-report"
+      ])
     });
   }
 

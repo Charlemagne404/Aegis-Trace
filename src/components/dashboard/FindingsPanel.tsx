@@ -42,6 +42,10 @@ function getFindingRows(nodes: DiagnosticNode[], selectedNodeId?: string) {
 }
 
 function getFindingValue(node: DiagnosticNode) {
+  if (node.status === "pending") {
+    return "Not evaluated";
+  }
+
   const primaryEvidence =
     node.evidence.find((item) => item.status === "failed" || item.status === "warning") ??
     node.evidence[0];
@@ -80,6 +84,7 @@ export function FindingsPanel({
   const issueCount = nodes.filter(
     (node) => node.status === "failed" || node.status === "warning"
   ).length;
+  const awaitingScan = nodes.every((node) => node.status === "pending");
 
   return (
     <section className="app-panel flex min-w-0 flex-col rounded-[18px] lg:h-full lg:min-h-0">
@@ -93,12 +98,18 @@ export function FindingsPanel({
         <span
           className={cn(
             "shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]",
-            issueCount
-              ? "border-[#ff6a5a]/25 bg-[#ff6a5a]/[0.08] text-[#ffb0a8]"
-              : "border-[#54d786]/25 bg-[#54d786]/[0.08] text-[#8ae6af]"
+            awaitingScan
+              ? "border-[#63a5ff]/25 bg-[#63a5ff]/[0.08] text-[#9bc5ff]"
+              : issueCount
+                ? "border-[#ff6a5a]/25 bg-[#ff6a5a]/[0.08] text-[#ffb0a8]"
+                : "border-[#54d786]/25 bg-[#54d786]/[0.08] text-[#8ae6af]"
           )}
         >
-          {issueCount ? `${issueCount} issue${issueCount === 1 ? "" : "s"}` : "No issues"}
+          {awaitingScan
+            ? "Awaiting scan"
+            : issueCount
+              ? `${issueCount} issue${issueCount === 1 ? "" : "s"}`
+              : "No issues"}
         </span>
       </div>
 

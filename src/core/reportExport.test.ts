@@ -1,11 +1,11 @@
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { createMockScanResult } from "./mockData";
+import { createScenarioScanResult } from "./diagnosticScenarios";
 import { buildCaseSummaryText, buildZipCaseFile } from "./reportExport";
 
 describe("report export", () => {
   it("builds a readable plain-language case summary", () => {
-    const scan = createMockScanResult("dns-failure");
+    const scan = createScenarioScanResult("dns-failure");
     const summary = buildCaseSummaryText(scan);
 
     expect(summary).toContain("Aegis Trace Case Summary");
@@ -15,7 +15,7 @@ describe("report export", () => {
   });
 
   it("packages a ZIP case file with structured and human-readable evidence", async () => {
-    const scan = createMockScanResult("dns-failure");
+    const scan = createScenarioScanResult("dns-failure");
     const zipBytes = await buildZipCaseFile(scan);
     const archive = await JSZip.loadAsync(zipBytes);
     const filenames = Object.keys(archive.files);

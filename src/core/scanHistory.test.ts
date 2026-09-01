@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createMockScanResult } from "./mockData";
+import { createScenarioScanResult } from "./diagnosticScenarios";
 import {
   clearScanHistory,
   loadScanHistory,
@@ -9,7 +9,8 @@ import {
 import type { ScanHistoryEntry } from "./types";
 
 function makeEntry(id: string, capturedAt: string): ScanHistoryEntry {
-  const scan = createMockScanResult("healthy");
+  const scan = createScenarioScanResult("healthy");
+  scan.mode = "real";
   scan.id = id;
   scan.createdAt = capturedAt;
 
@@ -17,7 +18,6 @@ function makeEntry(id: string, capturedAt: string): ScanHistoryEntry {
     id,
     capturedAt,
     reason: "manual",
-    scenarioId: "healthy",
     scan
   };
 }
@@ -51,11 +51,11 @@ describe("scan history storage", () => {
   it("ignores malformed or incomplete saved scans", () => {
     const validEntry = makeEntry("valid", "2026-05-27T09:18:00.000Z");
     window.localStorage.setItem(
-      "aegis.scan-history.v1",
+      "aegis.scan-history.v2",
       JSON.stringify([
         validEntry,
         { id: "broken", capturedAt: "not-a-date", reason: "manual", scan: {} },
-        { id: "wrong-scenario", capturedAt: validEntry.capturedAt, reason: "scenario", scenarioId: "unknown", scan: validEntry.scan }
+        { id: "wrong-reason", capturedAt: validEntry.capturedAt, reason: "scenario", scan: validEntry.scan }
       ])
     );
 

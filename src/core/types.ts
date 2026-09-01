@@ -15,11 +15,11 @@ export type AppMode = "normal" | "technician";
 
 export type ThemeMode = "system" | "dark" | "light";
 
-export type WorkspaceMode = "live" | "preview" | "lab" | "degraded";
+export type WorkspaceMode = "live" | "unavailable" | "degraded";
 
 export type PlatformId = "windows" | "macos" | "linux" | "unknown";
 
-export type ScanHistoryReason = "manual" | "scenario" | "verification";
+export type ScanHistoryReason = "manual" | "verification";
 
 export type ReportFormat = "json" | "html" | "zip";
 
@@ -29,18 +29,6 @@ export type RepairVerificationStatus =
   | "unchanged"
   | "worse"
   | "blocked";
-
-export type MockScenarioId =
-  | "healthy"
-  | "dns-failure"
-  | "dhcp-apipa"
-  | "no-adapter"
-  | "wlan-service-stopped"
-  | "gateway-unreachable"
-  | "internet-unreachable"
-  | "proxy-app-issue"
-  | "windows-false-negative"
-  | "captive-portal";
 
 export type EvidenceItem = {
   id: string;
@@ -98,7 +86,7 @@ export type OverallDiagnosis = {
 export type ScanResult = {
   id: string;
   createdAt: string;
-  mode: "mock" | "real";
+  mode: "real" | "fixture";
   overallStatus: DiagnosticStatus;
   diagnosis: OverallDiagnosis;
   nodes: DiagnosticNode[];
@@ -113,7 +101,7 @@ export type ScanResult = {
 
 export type FixExecutionResult = {
   fixId: string;
-  status: "success" | "failed" | "blocked" | "simulated";
+  status: "success" | "failed" | "blocked";
   title: string;
   message: string;
   stdout?: string;
@@ -146,7 +134,7 @@ export type RuntimeCapabilities = {
 
 export type RuntimeHealth = {
   checkedAt: string;
-  state: "ready" | "preview" | "degraded";
+  state: "ready" | "unavailable" | "degraded";
   summary: string;
   detail: string;
   capabilities: RuntimeCapabilities;
@@ -155,7 +143,7 @@ export type RuntimeHealth = {
 
 export type SystemMetrics = {
   collectedAt: string;
-  source: "system" | "browser";
+  source: "system" | "unavailable";
   uptimeSeconds: number | null;
   cpuUsagePercent: number | null;
   memoryUsedBytes: number | null;
@@ -183,7 +171,6 @@ export type ScanProgress = {
 
 export type ScanRunMetadata = {
   reason: ScanHistoryReason;
-  scenarioId?: MockScenarioId;
   relatedFixId?: string;
   relatedFixTitle?: string;
 };
@@ -216,7 +203,6 @@ export type ScanHistoryEntry = {
   id: string;
   capturedAt: string;
   reason: ScanHistoryReason;
-  scenarioId?: MockScenarioId;
   relatedFixId?: string;
   relatedFixTitle?: string;
   scan: ScanResult;

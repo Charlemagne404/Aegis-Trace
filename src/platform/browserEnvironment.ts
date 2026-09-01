@@ -17,27 +17,14 @@ export function getBrowserEnvironmentInfo(isTauri = false): EnvironmentInfo {
   };
 }
 
-export function getBrowserSystemMetrics(): SystemMetrics {
-  const memory =
-    typeof performance !== "undefined" && "memory" in performance
-      ? (
-          performance as Performance & {
-            memory?: {
-              usedJSHeapSize: number;
-              jsHeapSizeLimit: number;
-            };
-          }
-        ).memory
-      : undefined;
-
+export function getUnavailableSystemMetrics(): SystemMetrics {
   return {
     collectedAt: new Date().toISOString(),
-    source: "browser",
-    uptimeSeconds:
-      typeof performance !== "undefined" ? Math.round(performance.now() / 1000) : null,
+    source: "unavailable",
+    uptimeSeconds: null,
     cpuUsagePercent: null,
-    memoryUsedBytes: memory?.usedJSHeapSize ?? null,
-    memoryTotalBytes: memory?.jsHeapSizeLimit ?? null,
+    memoryUsedBytes: null,
+    memoryTotalBytes: null,
     networkReceivedBytes: null,
     networkTransmittedBytes: null
   };

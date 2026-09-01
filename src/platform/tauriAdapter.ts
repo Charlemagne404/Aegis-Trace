@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   createDegradedRuntimeHealth,
-  createPreviewRuntimeHealth
+  createUnavailableRuntimeHealth
 } from "@/core/runtimeHealth";
 import { isLivePlatform } from "@/core/platform";
 import { isAllowlistedFixId } from "@/core/fixRegistry";
@@ -26,12 +26,23 @@ import type {
   ScanResult,
   SystemMetrics
 } from "@/core/types";
-import { mockAdapter } from "./mockAdapter";
-import { getBrowserEnvironmentInfo, getBrowserSystemMetrics } from "./browserEnvironment";
+import { getBrowserEnvironmentInfo, getUnavailableSystemMetrics } from "./browserEnvironment";
 import type { PlatformAdapter } from "./platformAdapter";
 
 export function hasTauriRuntime(): boolean {
   return typeof window !== "undefined" && isTauri();
+}
+
+function createScanAbortError() {
+  const error = new Error("Diagnostic scan was cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfScanAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw createScanAbortError();
+  }
 }
 
 type SerializedReportPayload = {
@@ -135,14 +146,23 @@ async function exportReportFallback(
 
 export const tauriAdapter: PlatformAdapter = {
   kind: "tauri",
-  async runScan({ scenarioId, runId, onProgress }) {
+  async runScan({ runId, onProgress, signal }) {
+    throwIfScanAborted(signal);
+
     if (!hasTauriRuntime()) {
-      return mockAdapter.runScan({ scenarioId, runId, onProgress });
+      throw new TauriCommandError(
+        "run_scan",
+        "Live diagnostics require the installed Aegis Trace desktop app."
+      );
     }
 
     const environment = await getResolvedEnvironmentInfo();
+    throwIfScanAborted(signal);
     if (!isLivePlatform(environment.platform)) {
-      return mockAdapter.runScan({ scenarioId, runId, onProgress });
+      throw new TauriCommandError(
+        "run_scan",
+        "Live diagnostics are not supported on this operating system."
+      );
     }
 
     const unlisten = onProgress
@@ -152,11 +172,26 @@ export const tauriAdapter: PlatformAdapter = {
           }
         })
       : undefined;
+    let cancelRequest: Promise<unknown> | undefined;
+    const requestCancel = () => {
+      if (!cancelRequest) {
+        cancelRequest = invoke<boolean>("cancel_scan", { runId }).catch((error) => {
+          console.warn("Tauri scan cancellation request failed", error);
+        });
+      }
+    };
 
     try {
-      return await invokeTauriCommand<ScanResult>("run_scan", { scenarioId, runId });
+      signal?.addEventListener("abort", requestCancel, { once: true });
+      throwIfScanAborted(signal);
+      return await invokeTauriCommand<ScanResult>("run_scan", { runId });
     } finally {
-      await unlisten?.();
+      signal?.removeEventListener("abort", requestCancel);
+      try {
+        await unlisten?.();
+      } catch (error) {
+        console.warn("Tauri scan progress listener cleanup failed", error);
+      }
     }
   },
   async runFix(fix: FixAction, confirmation?: FixConfirmation) {
@@ -176,7 +211,7 @@ export const tauriAdapter: PlatformAdapter = {
         status: "blocked",
         title: "Fix unavailable",
         message:
-          "Real fix execution is only available inside the Windows or macOS Tauri build. No command was executed."
+          "Real fix execution is only available inside a supported Aegis Tauri desktop build. No command was executed."
       };
     }
 
@@ -224,7 +259,7 @@ export const tauriAdapter: PlatformAdapter = {
   },
   async getRuntimeHealth() {
     if (!hasTauriRuntime()) {
-      return createPreviewRuntimeHealth(getBrowserEnvironmentInfo());
+      return createUnavailableRuntimeHealth(getBrowserEnvironmentInfo());
     }
 
     try {
@@ -239,14 +274,14 @@ export const tauriAdapter: PlatformAdapter = {
   },
   async getSystemMetrics() {
     if (!hasTauriRuntime()) {
-      return getBrowserSystemMetrics();
+      return getUnavailableSystemMetrics();
     }
 
     try {
       return await invokeTauriCommand<SystemMetrics>("get_system_metrics", {});
     } catch (error) {
-      console.warn("Tauri command get_system_metrics failed; using browser metrics", error);
-      return getBrowserSystemMetrics();
+      console.warn("Tauri command get_system_metrics failed", error);
+      return getUnavailableSystemMetrics();
     }
   }
 };

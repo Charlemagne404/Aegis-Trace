@@ -1,24 +1,38 @@
 use crate::diagnostics::{
-    export_local_report, EnvironmentInfo, FixConfirmation, FixExecutionResult, RuntimeHealth,
+    self, export_local_report, EnvironmentInfo, FixConfirmation, FixExecutionResult, RuntimeHealth,
     ScanProgressEvent, ScanResult, SystemMetrics,
 };
 use crate::platform;
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
-pub async fn run_scan(
-    app: AppHandle,
-    scenario_id: Option<String>,
-    run_id: String,
-) -> Result<ScanResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        platform::run_scan(scenario_id, &run_id, |progress: ScanProgressEvent| {
-            let _ = app.emit("aegis-trace://scan-progress", progress);
-        })
-        .map_err(|error| error.to_string())
+pub async fn run_scan(app: AppHandle, run_id: String) -> Result<ScanResult, String> {
+    let cancellation = diagnostics::register_scan(&run_id)?;
+    let task_run_id = run_id.clone();
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        let result = platform::run_scan(
+            &task_run_id,
+            &cancellation,
+            |progress: ScanProgressEvent| {
+                let _ = app.emit("aegis-trace://scan-progress", progress);
+            },
+        )
+        .map_err(|error| error.to_string());
+        diagnostics::unregister_scan(&task_run_id);
+        result
     })
-    .await
-    .map_err(|error| format!("Native scan task failed: {error}"))?
+    .await;
+
+    if joined.is_err() {
+        diagnostics::unregister_scan(&run_id);
+    }
+
+    joined.map_err(|error| format!("Native scan task failed: {error}"))?
+}
+
+#[tauri::command]
+pub fn cancel_scan(run_id: String) -> bool {
+    diagnostics::cancel_scan(&run_id)
 }
 
 #[tauri::command]

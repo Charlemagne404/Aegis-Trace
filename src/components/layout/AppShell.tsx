@@ -28,7 +28,7 @@ import { platformLabel } from "@/core/platform";
 import { cn } from "@/utils/cn";
 
 type FooterMetrics = {
-  source: "system" | "browser";
+  source: "system" | "unavailable";
   collectedAt: string | null;
   uptimeSeconds: number | null;
   cpuUsagePercent: number | null;
@@ -53,6 +53,8 @@ type AppShellProps = {
   footerMetrics: FooterMetrics;
   scanActionEnabled: boolean;
   scanActionReason?: string;
+  reportActionEnabled: boolean;
+  reportActionReason?: string;
   onModeChange: (mode: AppMode) => void;
   onThemeChange: (theme: ThemeMode) => void;
   onRunScan: () => void;
@@ -199,6 +201,8 @@ export function AppShell({
   footerMetrics,
   scanActionEnabled,
   scanActionReason,
+  reportActionEnabled,
+  reportActionReason,
   onModeChange,
   onThemeChange,
   onRunScan,
@@ -208,9 +212,14 @@ export function AppShell({
 }: AppShellProps) {
   const cpuSparkPoints = buildSparklinePoints(footerMetrics.cpuHistory);
   const memorySparkPoints = buildSparklinePoints(footerMetrics.memoryHistory);
-  const footerStatusLabel = footerMetrics.source === "system" ? "Live metrics" : "Browser metrics";
+  const footerStatusLabel =
+    footerMetrics.source === "system"
+      ? "Live metrics"
+      : "Metrics unavailable";
   const footerStatusDotClassName =
-    footerMetrics.source === "system" ? "bg-[#54d786]" : "bg-[#f2b84b]";
+    footerMetrics.source === "system"
+      ? "bg-[#54d786]"
+      : "bg-slate-500";
   const technicianModeEnabled = mode === "technician";
 
   const navItems = [
@@ -267,10 +276,10 @@ export function AppShell({
       accentClassName: "text-[#54d786]",
       dotClassName: "bg-[#54d786]"
     },
-    preview: {
-      badge: "Preview workspace",
-      title: scan.environment.hostname ?? "Local preview",
-      description: "Aegis is using preview data until a supported desktop runtime is available.",
+    unavailable: {
+      badge: "Desktop runtime required",
+      title: scan.environment.hostname ?? "Desktop app required",
+      description: "Open the installed desktop app to run live diagnostics on this device.",
       accentClassName: "text-[#f2b84b]",
       dotClassName: "bg-[#f2b84b]"
     },
@@ -280,13 +289,6 @@ export function AppShell({
       description: "Live diagnostics are paused until the native runtime is healthy again.",
       accentClassName: "text-[#ff8a7e]",
       dotClassName: "bg-[#ff6a5a]"
-    },
-    lab: {
-      badge: "Diagnostic lab",
-      title: "Scenario replay active",
-      description: "Replay failures and simulated repair outcomes without touching the device.",
-      accentClassName: "text-[#63a5ff]",
-      dotClassName: "bg-[#63a5ff]"
     }
   }[workspaceMode];
   const hostnameDisplay =
@@ -462,9 +464,10 @@ export function AppShell({
                 <button
                   type="button"
                   onClick={onExportReport}
+                  disabled={!reportActionEnabled}
                   className="app-icon-button"
                   aria-label="Export report"
-                  title="Export report"
+                  title={reportActionEnabled ? "Export report" : reportActionReason}
                 >
                   <HardDrive className="h-5 w-5" />
                 </button>

@@ -13,13 +13,11 @@ type RecentScansProps = {
 
 const reasonLabels: Record<ScanHistoryEntry["reason"], string> = {
   manual: "Manual",
-  scenario: "Lab case",
   verification: "Repair check"
 };
 
 const reasonTone: Record<ScanHistoryEntry["reason"], string> = {
   manual: "text-cyan-100 bg-cyan-400/10 border-cyan-300/25",
-  scenario: "text-indigo-100 bg-indigo-400/10 border-indigo-300/25",
   verification: "text-emerald-100 bg-emerald-400/10 border-emerald-300/25"
 };
 
@@ -30,11 +28,7 @@ export function RecentScans({
   onClearHistory
 }: RecentScansProps) {
   const getSourceLabel = (entry: ScanHistoryEntry) => {
-    if (entry.scan.mode === "real") {
-      return `Live ${platformLabel(scanPlatform(entry.scan))} scan`;
-    }
-
-    return entry.reason === "scenario" ? "Lab replay" : "Preview data";
+    return `Live ${platformLabel(scanPlatform(entry.scan))} scan`;
   };
 
   return (

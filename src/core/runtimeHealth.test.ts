@@ -1,30 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
-  createLabRuntimeHealth,
-  createPreviewRuntimeHealth,
+  createUnavailableRuntimeHealth,
   deriveWorkspaceMode,
   getFixDisabledReason,
   getScanDisabledReason
 } from "./runtimeHealth";
 
 describe("runtimeHealth helpers", () => {
-  it("keeps preview scans available while blocking live fixes", () => {
-    const preview = createPreviewRuntimeHealth({ isWindows: true, isTauri: false });
+  it("blocks live actions when the desktop runtime is unavailable", () => {
+    const unavailable = createUnavailableRuntimeHealth({
+      platform: "windows",
+      isWindows: true,
+      isTauri: false
+    });
 
-    expect(preview.capabilities.canRunTimelineScans).toBe(true);
-    expect(preview.capabilities.canRunFixes).toBe(false);
-    expect(getScanDisabledReason(preview, false)).toBeUndefined();
-    expect(getFixDisabledReason(preview, false)).toContain("supported Aegis desktop app");
-    expect(deriveWorkspaceMode(preview, false)).toBe("preview");
+    expect(unavailable.capabilities.canRunTimelineScans).toBe(false);
+    expect(unavailable.capabilities.canRunFixes).toBe(false);
+    expect(getScanDisabledReason(unavailable)).toContain("Live diagnostics");
+    expect(getFixDisabledReason(unavailable)).toContain("installed Aegis Trace");
+    expect(deriveWorkspaceMode(unavailable)).toBe("unavailable");
   });
 
-  it("treats lab mode as a separate executable workspace", () => {
-    const lab = createLabRuntimeHealth();
+  it("keeps a degraded native runtime fail-closed", () => {
+    const degraded = {
+      ...createUnavailableRuntimeHealth(),
+      state: "degraded" as const,
+      detail: "Native startup checks failed."
+    };
 
-    expect(lab.capabilities.canRunTimelineScans).toBe(true);
-    expect(lab.capabilities.canRunFixes).toBe(true);
-    expect(getScanDisabledReason(lab, true)).toBeUndefined();
-    expect(getFixDisabledReason(lab, true)).toBeUndefined();
-    expect(deriveWorkspaceMode(lab, true)).toBe("lab");
+    expect(getScanDisabledReason(degraded)).toBe("Native startup checks failed.");
+    expect(getFixDisabledReason(degraded)).toBe("Native startup checks failed.");
+    expect(deriveWorkspaceMode(degraded)).toBe("degraded");
   });
 });

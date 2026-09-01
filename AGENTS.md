@@ -203,17 +203,15 @@ The timeline must render dynamically from scan results.
 
 ---
 
-## Mock-First Development
+## Production Development
 
-The app must always support:
+The installed Tauri desktop application is the product path and must use native diagnostics on the current operating system.
 
-* mock/demo mode
-* realistic simulated scenarios
-* non-Windows development
-
-The UI should be fully usable with mock data.
-
-Mock scenarios are first-class development tools.
+* Live scans must collect evidence from the device through a platform adapter.
+* Repairs must execute only through the allowlisted native command registry and confirmation flow.
+* Unsupported or incomplete runtimes must fail closed and explain what capability is unavailable.
+* The browser entry point serves the product site; it must never fabricate device diagnostics or repair outcomes.
+* Synthetic scenario data is permitted only inside automated tests and must be explicitly identified as test data.
 
 ---
 
@@ -477,7 +475,6 @@ core/
 types/
 engine/
 scoring/
-mock/
 fixes/
 platform/
 adapters/
@@ -493,14 +490,13 @@ Maintain clean separation of concerns.
 Priority order:
 
 1. Beautiful polished timeline UI
-2. Strong mock scenarios
+2. Reliable live platform diagnostics
 3. Clean architecture
-4. Diagnostic engine
-5. Real Windows diagnostics
-6. Safe repair actions
-7. Reporting/export
-8. Technician mode depth
-9. Advanced repair actions
+4. Diagnostic engine and scoring
+5. Safe repair actions
+6. Reporting/export
+7. Technician mode depth
+8. Advanced repair actions
 
 Do not prematurely optimize.
 

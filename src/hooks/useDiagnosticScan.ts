@@ -1,8 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { runDiagnosticEngine } from "@/core/diagnosticEngine";
 import type {
   DiagnosticNode,
-  MockScenarioId,
   ScanProgress,
   ScanResult,
   ScanRunMetadata
@@ -123,6 +122,7 @@ export function useDiagnosticScan({
   const activeNodeIdRef = useRef<string | undefined>(undefined);
   const completedNodeIdsRef = useRef<string[]>([]);
   const isScanningRef = useRef(false);
+  const activeScanControllerRef = useRef<AbortController | undefined>(undefined);
 
   const isStaleRun = (runId: number) => runIdRef.current !== runId;
 
@@ -137,6 +137,8 @@ export function useDiagnosticScan({
   }, []);
 
   const loadScan = useCallback((nextScan: ScanResult) => {
+    activeScanControllerRef.current?.abort();
+    activeScanControllerRef.current = undefined;
     runIdRef.current += 1;
     scanResultRef.current = nextScan;
     setScanResult(nextScan);
@@ -149,7 +151,7 @@ export function useDiagnosticScan({
   }, [resetLiveState]);
 
   const runScan = useCallback(
-    async (scenarioId?: MockScenarioId, metadata?: ScanRunMetadata) => {
+    async (metadata?: ScanRunMetadata) => {
       if (isScanningRef.current) {
         return undefined;
       }
@@ -164,13 +166,15 @@ export function useDiagnosticScan({
       resetLiveState();
       setDisplayNodes(buildPendingNodes(scanResultRef.current.nodes));
       const scanStartedAt = Date.now();
+      const scanController = new AbortController();
+      activeScanControllerRef.current = scanController;
 
       let finalScan: ScanResult;
       try {
         finalScan = await withTimeout(
           runDiagnosticEngine(adapter, {
-            scenarioId,
             runId: scanRunId,
+            signal: scanController.signal,
             onProgress: (progress) => {
               if (isStaleRun(runId)) return;
 
@@ -227,6 +231,10 @@ export function useDiagnosticScan({
           "The diagnostic scan took too long and was stopped."
         );
       } catch (error) {
+        scanController.abort();
+        if (activeScanControllerRef.current === scanController) {
+          activeScanControllerRef.current = undefined;
+        }
         if (!isStaleRun(runId)) {
           const message =
             error instanceof TimeoutError
@@ -246,6 +254,10 @@ export function useDiagnosticScan({
         return undefined;
       }
 
+      if (activeScanControllerRef.current === scanController) {
+        activeScanControllerRef.current = undefined;
+      }
+
       if (isStaleRun(runId)) return undefined;
       scanResultRef.current = finalScan;
       setScanResult(finalScan);
@@ -259,6 +271,16 @@ export function useDiagnosticScan({
       return finalScan;
     },
     [adapter, onScanComplete, resetLiveState]
+  );
+
+  useEffect(
+    () => () => {
+      runIdRef.current += 1;
+      activeScanControllerRef.current?.abort();
+      activeScanControllerRef.current = undefined;
+      isScanningRef.current = false;
+    },
+    []
   );
 
   return {

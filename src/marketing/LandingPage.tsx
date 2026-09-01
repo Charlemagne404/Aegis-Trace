@@ -89,13 +89,13 @@ export function LandingPage() {
           </p>
           <div className="hero-actions">
             <a className="button-primary" href={releaseUrl} target="_blank" rel="noreferrer">
-              Download for Windows or macOS <ArrowRight aria-hidden="true" />
+              Download for Windows, macOS, or Linux <ArrowRight aria-hidden="true" />
             </a>
-            <a className="button-quiet" href="?app">
-              Explore the interface <ChevronRight aria-hidden="true" />
+            <a className="button-quiet" href="#how-it-works">
+              See how it works <ChevronRight aria-hidden="true" />
             </a>
           </div>
-          <p className="hero-note"><Check aria-hidden="true" /> Windows 10/11 and macOS · Private by design</p>
+          <p className="hero-note"><Check aria-hidden="true" /> Windows, macOS, and Linux · Private by design</p>
         </div>
 
         <div className="product-stage" aria-label="Aegis Trace diagnostic timeline preview">
@@ -149,7 +149,7 @@ export function LandingPage() {
         <p><ShieldCheck /> No telemetry</p><span />
         <p><SearchCheck /> Evidence before repair</p><span />
         <p><Wrench /> Safe, allowlisted fixes</p><span />
-        <p><Monitor /> Built for Windows and macOS</p>
+        <p><Monitor /> Built for Windows, macOS, and Linux</p>
       </section>
 
       <section className="principles-section" id="how-it-works">
@@ -190,16 +190,16 @@ export function LandingPage() {
         <div className="download-grid" />
         <p className="eyebrow"><span /> Ready when you are</p>
         <h2>Make the next network<br />problem easier to understand.</h2>
-        <p>Get Aegis Trace for Windows or macOS and replace vague error messages with a clear path forward.</p>
+        <p>Get Aegis Trace for Windows, macOS, or Linux and replace vague error messages with a clear path forward.</p>
         <a className="button-primary" href={releaseUrl} target="_blank" rel="noreferrer">
-          Download for Windows or macOS <Download aria-hidden="true" />
+          Download for Windows, macOS, or Linux <Download aria-hidden="true" />
         </a>
         <small>Opens the Aegis Trace release page on GitHub <ExternalLink aria-hidden="true" /></small>
       </section>
 
       <footer className="landing-footer">
         <a className="landing-brand" href="#top"><span className="brand-mark"><ShieldCheck aria-hidden="true" /></span><span>Aegis <em>Trace</em></span></a>
-        <p>Visual network diagnostics for Windows and macOS.</p>
+        <p>Visual network diagnostics for Windows, macOS, and Linux.</p>
         <a href="https://github.com/Charlemagne404/NetFix" target="_blank" rel="noreferrer">GitHub <ExternalLink aria-hidden="true" /></a>
       </footer>
     </main>

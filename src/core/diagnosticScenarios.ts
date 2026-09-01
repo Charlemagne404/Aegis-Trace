@@ -5,20 +5,31 @@ import type {
   DiagnosticNode,
   DiagnosticStatus,
   EvidenceItem,
-  MockScenarioId,
   ScanResult,
   Severity
 } from "./types";
 
 type NodePatch = Partial<DiagnosticNode> & Pick<DiagnosticNode, "id">;
 
-export type MockScenario = {
-  id: MockScenarioId;
+export type ScenarioId =
+  | "healthy"
+  | "dns-failure"
+  | "dhcp-apipa"
+  | "no-adapter"
+  | "wlan-service-stopped"
+  | "gateway-unreachable"
+  | "internet-unreachable"
+  | "proxy-app-issue"
+  | "windows-false-negative"
+  | "captive-portal";
+
+export type ScenarioDefinition = {
+  id: ScenarioId;
   label: string;
   description: string;
 };
 
-export const MOCK_SCENARIOS: MockScenario[] = [
+export const SCENARIOS: ScenarioDefinition[] = [
   {
     id: "dns-failure",
     label: "DNS failure",
@@ -332,14 +343,14 @@ function buildNodes(patches: NodePatch[]): DiagnosticNode[] {
   );
 }
 
-function makeScan(id: MockScenarioId, patches: NodePatch[]): ScanResult {
+function makeScan(id: ScenarioId, patches: NodePatch[]): ScanResult {
   const nodes = buildNodes(patches);
   const diagnosis = generateOverallDiagnosis(nodes);
 
   return {
-    id: `mock-${id}-${Date.now()}`,
+    id: `fixture-${id}-${Date.now()}`,
     createdAt: new Date().toISOString(),
-    mode: "mock",
+    mode: "fixture",
     overallStatus: getOverallStatus(nodes),
     diagnosis,
     nodes,
@@ -353,7 +364,7 @@ function makeScan(id: MockScenarioId, patches: NodePatch[]): ScanResult {
   };
 }
 
-function scenarioPatches(id: MockScenarioId): NodePatch[] {
+function scenarioPatches(id: ScenarioId): NodePatch[] {
   switch (id) {
     case "healthy":
       return [];
@@ -382,7 +393,9 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "flush-dns",
             "renew-dhcp",
             "dns-automatic",
-            "set-public-dns"
+            "set-public-dns",
+            "open-router-settings",
+            "open-network-settings"
           ]),
           rawOutput:
             "Resolve-DnsName google.com\nResolve-DnsName: DNS request timed out.\n\nTest-NetConnection 1.1.1.1\nTcpTestSucceeded: True"
@@ -434,8 +447,10 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
           ],
           recommendedFixes: getFixActions([
             "renew-dhcp",
+            "reconnect-wifi",
             "restart-adapter",
-            "open-network-settings"
+            "open-network-settings",
+            "generate-wlan-report"
           ]),
           rawOutput:
             "IPv4 Address: 169.254.77.18\nDefault Gateway: \nDHCP Enabled: Yes\nLease Obtained: N/A"
@@ -471,7 +486,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Driver problem",
             "USB or internal Wi-Fi hardware disconnected"
           ],
-          recommendedFixes: getFixActions(["open-network-settings", "generate-wlan-report"]),
+          recommendedFixes: getFixActions([
+            "open-device-manager",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Get-NetAdapter\nName: Ethernet Status: Up\nNo interface with NdisPhysicalMedium WirelessLan"
         },
@@ -502,7 +521,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Service startup failure",
             "Security or optimization tool disabled Wi-Fi management"
           ],
-          recommendedFixes: getFixActions(["restart-wlan-service", "open-network-settings"]),
+          recommendedFixes: getFixActions([
+            "restart-wlan-service",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Get-Service WlanSvc\nStatus   Name\nStopped  WlanSvc\n\nnetsh wlan show interfaces\nThere is no wireless interface on the system."
         },
@@ -533,7 +556,14 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Local Wi-Fi isolation or firewall issue",
             "Bad subnet/gateway pairing"
           ],
-          recommendedFixes: getFixActions(["renew-dhcp", "restart-adapter", "open-network-settings"]),
+          recommendedFixes: getFixActions([
+            "renew-dhcp",
+            "reconnect-wifi",
+            "restart-adapter",
+            "open-router-settings",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "DefaultGateway: 192.168.1.1\nPing 192.168.1.1: Request timed out"
         },
@@ -568,7 +598,14 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Router WAN disconnected",
             "VPN or firewall route problem"
           ],
-          recommendedFixes: getFixActions(["renew-dhcp", "generate-wlan-report", "open-network-settings"]),
+          recommendedFixes: getFixActions([
+            "renew-dhcp",
+            "reconnect-wifi",
+            "restart-adapter",
+            "open-router-settings",
+            "generate-wlan-report",
+            "open-network-settings"
+          ]),
           rawOutput:
             "Ping 192.168.1.1: Reply\nPing 1.1.1.1: Request timed out\nTest-NetConnection 8.8.8.8: TcpTestSucceeded=False"
         },
@@ -608,7 +645,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "VPN profile left proxy enabled",
             "Corporate proxy unreachable outside the office"
           ],
-          recommendedFixes: getFixActions(["open-network-settings", "generate-wlan-report"]),
+          recommendedFixes: getFixActions([
+            "reset-proxy",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Current WinHTTP proxy settings:\n    Proxy Server(s): proxy.corp.example:8080\n    Bypass List: <local>"
         },
@@ -629,7 +670,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Proxy requires VPN or authentication",
             "Application-specific proxy override"
           ],
-          recommendedFixes: getFixActions(["open-network-settings", "generate-wlan-report"]),
+          recommendedFixes: getFixActions([
+            "reset-proxy",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Test-NetConnection www.microsoft.com -Port 443\nTcpTestSucceeded: False\nProxy: proxy.corp.example:8080"
         }
@@ -654,7 +699,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Connectivity status cache is stale",
             "Captive portal detection endpoint blocked"
           ],
-          recommendedFixes: getFixActions(["flush-dns", "open-network-settings", "generate-wlan-report"]),
+          recommendedFixes: getFixActions([
+            "flush-dns",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Get-NetConnectionProfile: IPv4Connectivity=NoTraffic\nTest-NetConnection 1.1.1.1: True\nResolve-DnsName google.com: Success"
         }
@@ -689,7 +738,11 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
             "Hotel, airport, office, or guest Wi-Fi login page",
             "Network terms must be accepted"
           ],
-          recommendedFixes: getFixActions(["open-network-settings"]),
+          recommendedFixes: getFixActions([
+            "open-captive-portal",
+            "open-network-settings",
+            "generate-wlan-report"
+          ]),
           rawOutput:
             "Invoke-WebRequest http://www.msftconnecttest.com/connecttest.txt\nStatusCode: 302\nLocation: http://login.network.local"
         },
@@ -709,10 +762,6 @@ function scenarioPatches(id: MockScenarioId): NodePatch[] {
   }
 }
 
-export function createMockScanResult(scenarioId: MockScenarioId = "healthy"): ScanResult {
+export function createScenarioScanResult(scenarioId: ScenarioId = "healthy"): ScanResult {
   return makeScan(scenarioId, scenarioPatches(scenarioId));
-}
-
-export function getDefaultMockScenario(): MockScenarioId {
-  return "healthy";
 }

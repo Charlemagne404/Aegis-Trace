@@ -11,7 +11,7 @@ import type {
   PlatformId
 } from "./types";
 
-const SCAN_HISTORY_STORAGE_KEY = "aegis.scan-history.v1";
+const SCAN_HISTORY_STORAGE_KEY = "aegis.scan-history.v2";
 const SCAN_HISTORY_LIMIT = 18;
 
 const DIAGNOSTIC_STATUSES = new Set<DiagnosticStatus>([
@@ -28,20 +28,7 @@ const FIX_SAFETIES = new Set<FixSafety>(["safe", "moderate", "aggressive"]);
 const PLATFORM_IDS = new Set<PlatformId>(["windows", "macos", "linux", "unknown"]);
 const SCAN_HISTORY_REASONS = new Set<ScanHistoryEntry["reason"]>([
   "manual",
-  "scenario",
   "verification"
-]);
-const MOCK_SCENARIO_IDS = new Set([
-  "healthy",
-  "dns-failure",
-  "dhcp-apipa",
-  "no-adapter",
-  "wlan-service-stopped",
-  "gateway-unreachable",
-  "internet-unreachable",
-  "proxy-app-issue",
-  "windows-false-negative",
-  "captive-portal"
 ]);
 
 function canUseStorage() {
@@ -150,7 +137,7 @@ function isScanResult(value: unknown): value is ScanResult {
   return (
     typeof value.id === "string" &&
     isValidTimestamp(value.createdAt) &&
-    (value.mode === "mock" || value.mode === "real") &&
+    (value.mode === "fixture" || value.mode === "real") &&
     isDiagnosticStatus(value.overallStatus) &&
     isOverallDiagnosis(value.diagnosis) &&
     Array.isArray(value.nodes) &&
@@ -177,10 +164,10 @@ function isScanHistoryEntry(value: unknown): value is ScanHistoryEntry {
     typeof value.id === "string" &&
     isValidTimestamp(value.capturedAt) &&
     isScanHistoryReason(value.reason) &&
-    (value.scenarioId === undefined ||
-      (typeof value.scenarioId === "string" && MOCK_SCENARIO_IDS.has(value.scenarioId))) &&
     (value.relatedFixId === undefined || typeof value.relatedFixId === "string") &&
     (value.relatedFixTitle === undefined || typeof value.relatedFixTitle === "string") &&
+    isRecord(value.scan) &&
+    value.scan.mode === "real" &&
     isScanResult(value.scan)
   );
 }

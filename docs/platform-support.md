@@ -6,9 +6,9 @@ Aegis Trace keeps its diagnostic model and React UI shared across desktop platfo
 | --- | --- | --- | --- | --- |
 | Windows 10/11 | Supported | Supported through PowerShell and Windows networking tools | Supported, with confirmation and elevation gates | Existing Windows adapter |
 | macOS desktop | Supported for development and validation | Supported through `ifconfig`, `networksetup`, `route`, `scutil`, DNS tools, and bounded HTTPS probes | Supported for platform-equivalent actions; admin-only actions fail closed without elevation | macOS adapter |
-| Linux | Tauri shell can compile | Preview/mock fallback only | Blocked until a Linux adapter is implemented | Explicit future adapter boundary |
+| Linux desktop | Supported | Supported through `ip`, `nmcli`, `resolvectl`, `getent`, `ping`, and bounded HTTPS probes | Supported for bounded platform-equivalent actions; actions needing elevated access fail closed | Linux adapter; `ip`, `getent`, and `curl` are required for full live coverage, while NetworkManager is optional |
 
-The Linux entry point is intentionally a graceful fallback. It does not reinterpret Linux command output as Windows or macOS evidence, and it does not claim live support yet.
+The Linux adapter does not reinterpret Linux command output as Windows or macOS evidence. It reads only a fixed command vocabulary, marks unavailable optional tooling as partial coverage, and does not inspect or export Wi-Fi passwords. It supports NetworkManager-managed Linux desktops directly; systems using another network manager retain core route, IP, DNS, gateway, and internet diagnostics while NetworkManager-specific repairs are hidden. A DNS cache action appears only when `resolvectl` is available, and the settings shortcut appears only when Aegis finds a supported local settings app.
 
 ## Native command safety
 

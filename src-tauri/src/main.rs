@@ -7,6 +7,9 @@ mod platform;
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(target_os = "linux")]
+mod linux;
+
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
@@ -73,6 +76,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::run_scan,
+            commands::cancel_scan,
             commands::run_fix,
             commands::export_report,
             commands::generate_wlan_report,

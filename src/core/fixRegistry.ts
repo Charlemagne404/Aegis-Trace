@@ -1,4 +1,10 @@
-import type { FixAction, FixConfirmation, FixSafety } from "./types";
+import type {
+  FixAction,
+  FixConfirmation,
+  FixSafety,
+  PlatformId,
+  ScanResult
+} from "./types";
 
 export const AGGRESSIVE_CONFIRMATION_PHRASE = "RESET";
 
@@ -52,6 +58,62 @@ export const FIX_ACTIONS: Record<string, FixAction> = {
     requiresAdmin: false,
     commandsPreview: ["start ms-settings:network"],
     estimatedImpact: "No settings are changed automatically."
+  },
+  "open-device-manager": {
+    id: "open-device-manager",
+    title: "Open Device Manager",
+    description:
+      "Opens Device Manager so you can check whether the wireless adapter is disabled or missing a driver.",
+    safety: "safe",
+    requiresAdmin: false,
+    commandsPreview: ["devmgmt.msc"],
+    estimatedImpact: "Opens a Windows administration window. No device is changed automatically."
+  },
+  "reconnect-wifi": {
+    id: "reconnect-wifi",
+    title: "Reconnect to current Wi-Fi",
+    description:
+      "Disconnects and reconnects the active Wi-Fi connection while keeping its saved profile.",
+    safety: "moderate",
+    requiresAdmin: false,
+    commandsPreview: ["netsh wlan disconnect", "netsh wlan connect name=\"<SSID>\""],
+    estimatedImpact: "Wi-Fi will be unavailable briefly while the connection is rebuilt.",
+    warning:
+      "This interrupts active downloads, calls, and remote sessions, but does not delete the saved profile."
+  },
+  "open-router-settings": {
+    id: "open-router-settings",
+    title: "Open router settings",
+    description:
+      "Opens the detected default gateway in your browser so you can check router status or WAN settings.",
+    safety: "safe",
+    requiresAdmin: false,
+    commandsPreview: ["Open http://<gateway> in your browser"],
+    estimatedImpact: "Opens your browser. Aegis does not change router settings automatically."
+  },
+  "open-captive-portal": {
+    id: "open-captive-portal",
+    title: "Open Wi-Fi sign-in page",
+    description:
+      "Opens a connectivity page that can trigger the hotel, office, or public Wi-Fi sign-in screen.",
+    safety: "safe",
+    requiresAdmin: false,
+    commandsPreview: ["Open the network sign-in page in your browser"],
+    estimatedImpact: "Opens a browser. Aegis never captures or submits your sign-in details.",
+    warning:
+      "Complete any sign-in or terms step in the browser before returning to Aegis and re-running the scan."
+  },
+  "reset-proxy": {
+    id: "reset-proxy",
+    title: "Clear detected system proxy",
+    description:
+      "Clears the detected manual system proxy so apps can try a direct connection again.",
+    safety: "moderate",
+    requiresAdmin: false,
+    commandsPreview: ["netsh winhttp reset proxy"],
+    estimatedImpact: "Apps using the previous proxy may reconnect directly.",
+    warning:
+      "Do not use this if your workplace or VPN requires the proxy. Save the existing proxy details first."
   },
   "restart-adapter": {
     id: "restart-adapter",
@@ -157,6 +219,60 @@ export function getFixAction(id: string): FixAction {
 
 export function getFixActions(ids: string[]): FixAction[] {
   return ids.map(getFixAction);
+}
+
+const ADVANCED_FIX_IDS: Partial<Record<PlatformId, string[]>> = {
+  windows: ["winsock-reset", "tcpip-reset", "full-network-reset-settings"]
+};
+
+export function getAdvancedFixActions(platform: PlatformId): FixAction[] {
+  return rankFixes(getFixActions(ADVANCED_FIX_IDS[platform] ?? []));
+}
+
+function uniqueFixes(fixes: FixAction[]): FixAction[] {
+  return fixes.filter(
+    (fix, index, allFixes) =>
+      allFixes.findIndex((candidate) => candidate.id === fix.id) === index
+  );
+}
+
+export type SupplementalRepairOptions = {
+  alternatives: FixAction[];
+  advanced: FixAction[];
+};
+
+/**
+ * Keeps the main repair plan concise while recovering contextual alternatives that were
+ * attached to individual timeline nodes. Native adapters use this same node-level list to
+ * withhold actions they cannot safely target on the current platform.
+ */
+export function getSupplementalRepairOptions(
+  scan: Pick<ScanResult, "overallStatus" | "diagnosis" | "nodes">,
+  platform: PlatformId
+): SupplementalRepairOptions {
+  if (scan.overallStatus === "ok") {
+    return { alternatives: [], advanced: [] };
+  }
+
+  const primaryIds = new Set(
+    scan.diagnosis.recommendedFixes.slice(0, 4).map((fix) => fix.id)
+  );
+  const nodeFixes = scan.nodes.flatMap((node) => node.recommendedFixes);
+  const diagnosisOverflow = scan.diagnosis.recommendedFixes.slice(4);
+  const contextualFixes = uniqueFixes([...diagnosisOverflow, ...nodeFixes]).filter(
+    (fix) => !primaryIds.has(fix.id)
+  );
+  const advanced = uniqueFixes([
+    ...contextualFixes.filter((fix) => fix.safety === "aggressive"),
+    ...getAdvancedFixActions(platform)
+  ]);
+
+  return {
+    alternatives: rankFixes(
+      contextualFixes.filter((fix) => fix.safety !== "aggressive")
+    ),
+    advanced: rankFixes(advanced)
+  };
 }
 
 export function isAllowlistedFixId(id: string): boolean {

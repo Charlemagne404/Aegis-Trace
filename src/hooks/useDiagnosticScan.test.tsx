@@ -1,13 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { createMockScanResult } from "@/core/mockData";
+import { createScenarioScanResult } from "@/core/diagnosticScenarios";
 import type { ScanRunMetadata } from "@/core/types";
 import type { PlatformAdapter } from "@/platform/platformAdapter";
 import { useDiagnosticScan } from "./useDiagnosticScan";
 
 function createAdapter(runScan: PlatformAdapter["runScan"]): PlatformAdapter {
   return {
-    kind: "mock",
+    kind: "tauri",
     runScan,
     runFix: vi.fn(),
     exportReport: vi.fn(),
@@ -19,11 +19,10 @@ function createAdapter(runScan: PlatformAdapter["runScan"]): PlatformAdapter {
 
 describe("useDiagnosticScan", () => {
   it("commits the final scan and forwards the run metadata", async () => {
-    const initialScan = createMockScanResult("healthy");
-    const finalScan = createMockScanResult("dns-failure");
+    const initialScan = createScenarioScanResult("healthy");
+    const finalScan = createScenarioScanResult("dns-failure");
     const metadata: ScanRunMetadata = {
-      reason: "scenario",
-      scenarioId: "dns-failure"
+      reason: "manual"
     };
     const onScanComplete = vi.fn();
     const runScan = vi.fn(async ({ runId, onProgress }) => {
@@ -74,7 +73,7 @@ describe("useDiagnosticScan", () => {
     );
 
     await act(async () => {
-      await result.current.runScan("dns-failure", metadata);
+      await result.current.runScan(metadata);
     });
 
     expect(runScan).toHaveBeenCalledTimes(1);
@@ -85,8 +84,8 @@ describe("useDiagnosticScan", () => {
   });
 
   it("refuses a second scan while the first scan is still running", async () => {
-    const initialScan = createMockScanResult("healthy");
-    const finalScan = createMockScanResult("healthy");
+    const initialScan = createScenarioScanResult("healthy");
+    const finalScan = createScenarioScanResult("healthy");
     let releaseFirstScan!: (scan: typeof finalScan) => void;
     const firstScan = new Promise<typeof finalScan>((resolve) => {
       releaseFirstScan = resolve;
@@ -97,7 +96,7 @@ describe("useDiagnosticScan", () => {
 
     let firstRun: ReturnType<typeof result.current.runScan> | undefined;
     await act(async () => {
-      firstRun = result.current.runScan("healthy");
+      firstRun = result.current.runScan();
     });
 
     expect(result.current.canStartScan()).toBe(false);
@@ -105,7 +104,7 @@ describe("useDiagnosticScan", () => {
 
     let secondRun: ReturnType<typeof result.current.runScan> | undefined;
     await act(async () => {
-      secondRun = result.current.runScan("dns-failure");
+      secondRun = result.current.runScan();
     });
 
     await expect(secondRun).resolves.toBeUndefined();
@@ -118,6 +117,42 @@ describe("useDiagnosticScan", () => {
 
     expect(result.current.isScanning).toBe(false);
     expect(result.current.scanResult).toBe(finalScan);
+    expect(result.current.canStartScan()).toBe(true);
+  });
+
+  it("aborts an in-flight scan when a saved result is loaded", async () => {
+    const initialScan = createScenarioScanResult("healthy");
+    const replacementScan = createScenarioScanResult("dns-failure");
+    let observedSignal: AbortSignal | undefined;
+    const runScan = vi.fn(({ signal }: { signal?: AbortSignal }) =>
+      new Promise<typeof replacementScan>((_resolve, reject) => {
+        observedSignal = signal;
+        signal?.addEventListener(
+          "abort",
+          () => reject(new Error("scan aborted")),
+          { once: true }
+        );
+      })
+    );
+    const adapter = createAdapter(runScan);
+    const { result } = renderHook(() =>
+      useDiagnosticScan({ initialScan, adapter })
+    );
+
+    let pendingRun: ReturnType<typeof result.current.runScan> | undefined;
+    await act(async () => {
+      pendingRun = result.current.runScan();
+    });
+    await waitFor(() => expect(result.current.isScanning).toBe(true));
+
+    await act(async () => {
+      result.current.loadScan(replacementScan);
+      await pendingRun;
+    });
+
+    expect(observedSignal?.aborted).toBe(true);
+    expect(result.current.isScanning).toBe(false);
+    expect(result.current.scanResult).toBe(replacementScan);
     expect(result.current.canStartScan()).toBe(true);
   });
 });

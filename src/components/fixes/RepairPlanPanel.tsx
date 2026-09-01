@@ -1,6 +1,8 @@
+import { useState } from "react";
 import {
-  ArrowRight,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   LoaderCircle,
   RotateCcw,
   ThumbsDown,
@@ -13,6 +15,7 @@ import type {
 } from "@/core/types";
 import { SafetyPill } from "@/components/common/SafetyPill";
 import { cn } from "@/utils/cn";
+import { RepairOptionRow } from "./RepairOptionRow";
 
 type RepairPlanPanelProps = {
   diagnosis: OverallDiagnosis;
@@ -22,7 +25,8 @@ type RepairPlanPanelProps = {
   fixesDisabledReason?: string;
   scanActionEnabled: boolean;
   scanActionReason?: string;
-  onOpenAdvancedOptions: () => void;
+  additionalFixes: FixAction[];
+  advancedFixes: FixAction[];
   onRunFix: (fix: FixAction) => void;
   onRunScan: () => void;
 };
@@ -31,6 +35,11 @@ function actionLabel(fix: FixAction) {
   if (fix.id === "renew-dhcp") return "Renew IP";
   if (fix.id === "restart-adapter") return "Restart Adapter";
   if (fix.id === "flush-dns") return "Flush DNS";
+  if (fix.id === "reconnect-wifi") return "Reconnect Wi-Fi";
+  if (fix.id === "open-router-settings") return "Open router";
+  if (fix.id === "open-captive-portal") return "Open sign-in";
+  if (fix.id === "open-device-manager") return "Open Device Manager";
+  if (fix.id === "reset-proxy") return "Clear proxy";
   if (fix.id === "open-network-settings") return "View Guide";
   if (fix.safety === "safe") return "Apply Safe Fix";
   if (fix.safety === "moderate") return "Review Fix";
@@ -45,11 +54,15 @@ export function RepairPlanPanel({
   fixesDisabledReason,
   scanActionEnabled,
   scanActionReason,
-  onOpenAdvancedOptions,
+  additionalFixes,
+  advancedFixes,
   onRunFix,
   onRunScan
 }: RepairPlanPanelProps) {
   const steps = diagnosis.recommendedFixes.slice(0, 4);
+  const awaitingScan = diagnosis.id === "not-scanned";
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const optionCount = steps.length + additionalFixes.length + advancedFixes.length;
 
   return (
     <section className="app-panel flex min-w-0 flex-col rounded-[18px] lg:h-full lg:min-h-0">
@@ -61,7 +74,13 @@ export function RepairPlanPanel({
           </p>
         </div>
         <span className="shrink-0 rounded-full border border-[#4b8dff]/20 bg-[#4b8dff]/[0.07] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9bc5ff]">
-          {isScanning ? "Rechecking" : steps.length ? `${steps.length} steps` : "No action"}
+          {isScanning
+            ? "Rechecking"
+            : awaitingScan
+              ? "Scan required"
+              : optionCount
+                ? `${optionCount} options`
+                : "No action"}
         </span>
       </div>
 
@@ -74,6 +93,13 @@ export function RepairPlanPanel({
             </div>
             <p className="mt-2 text-sm leading-6 text-slate-300">
               Aegis is waiting for the new break point before suggesting a repair.
+            </p>
+          </div>
+        ) : awaitingScan ? (
+          <div className="rounded-[16px] border border-[#63a5ff]/20 bg-[#63a5ff]/[0.06] px-4 py-4">
+            <p className="font-medium text-white">Run a live scan first</p>
+            <p className="mt-1 text-sm leading-6 text-slate-300">
+              Aegis will only recommend a repair after it has collected evidence from this device.
             </p>
           </div>
         ) : steps.length ? (
@@ -130,16 +156,79 @@ export function RepairPlanPanel({
           </div>
         )}
 
-        <div className="mt-3 px-1">
-          <button
-            type="button"
-            onClick={onOpenAdvancedOptions}
-            className="inline-flex items-center gap-2 text-sm font-medium text-[#4b8dff] transition hover:text-[#78aaff]"
-          >
-            View advanced options
-            <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
+        {additionalFixes.length || advancedFixes.length ? (
+          <div className="mt-3 overflow-hidden rounded-[14px] border border-[color:var(--aegis-line-soft)] bg-[rgba(13,23,36,0.58)]">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+              <div>
+                <p className="text-[0.78rem] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  More ways to try
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  Other actions suggested by the stages Aegis checked.
+                </p>
+              </div>
+              <span className="shrink-0 text-xs font-medium text-slate-500">
+                {additionalFixes.length + advancedFixes.length} more
+              </span>
+            </div>
+
+            {showMoreOptions ? (
+              <div className="border-t border-[color:var(--aegis-line-soft)]">
+                {additionalFixes.length ? (
+                  <div className="divide-y divide-[color:var(--aegis-line-soft)]">
+                    {additionalFixes.map((fix) => (
+                      <RepairOptionRow
+                        key={fix.id}
+                        fix={fix}
+                        actionsEnabled={fixesEnabled}
+                        disabledReason={fixesDisabledReason}
+                        onRun={onRunFix}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {advancedFixes.length ? (
+                  <div className="border-t border-amber-300/10">
+                    <div className="px-4 pb-1 pt-3 sm:px-5">
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-amber-200/70">
+                        Last-resort repairs
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        These reset deeper networking state and always require an explicit confirmation.
+                      </p>
+                    </div>
+                    <div className="divide-y divide-[color:var(--aegis-line-soft)]">
+                      {advancedFixes.map((fix) => (
+                        <RepairOptionRow
+                          key={fix.id}
+                          fix={fix}
+                          actionsEnabled={fixesEnabled}
+                          disabledReason={fixesDisabledReason}
+                          onRun={onRunFix}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => setShowMoreOptions((visible) => !visible)}
+              className="flex w-full items-center justify-center gap-2 border-t border-[color:var(--aegis-line-soft)] px-4 py-2.5 text-sm font-medium text-[#63a5ff] transition hover:bg-white/[0.03] hover:text-[#9bc5ff]"
+              aria-expanded={showMoreOptions}
+            >
+              {showMoreOptions ? "Hide additional options" : "Show additional options"}
+              {showMoreOptions ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        ) : null}
 
         {fixResult ? (
           <div className="mt-3 rounded-[14px] border border-[#4b8dff]/22 bg-[#4b8dff]/[0.08] px-4 py-3">
@@ -157,7 +246,7 @@ export function RepairPlanPanel({
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RotateCcw className="h-4 w-4" />
-            {isScanning ? "Re-running tests" : "Re-run tests"}
+            {isScanning ? "Running live scan" : awaitingScan ? "Run live scan" : "Re-run tests"}
           </button>
 
           <div className="flex items-center gap-3 text-sm text-slate-500">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createMockScanResult } from "./mockData";
-import { projectMockScenarioAfterFix } from "./mockRepairOutcomes";
+import { createScenarioScanResult } from "./diagnosticScenarios";
+import { projectScenarioAfterFix } from "./scenarioTransitions";
 import {
   buildRepairBlockedVerification,
   buildRepairVerification
@@ -8,16 +8,16 @@ import {
 
 describe("repair verification", () => {
   it("marks a repair as resolved when the verification scan clears the failure", () => {
-    const beforeScan = createMockScanResult("dns-failure");
-    const afterScan = createMockScanResult(
-      projectMockScenarioAfterFix("dns-failure", "flush-dns")
+    const beforeScan = createScenarioScanResult("dns-failure");
+    const afterScan = createScenarioScanResult(
+      projectScenarioAfterFix("dns-failure", "flush-dns")
     );
 
     const verification = buildRepairVerification(beforeScan, afterScan, {
       fixId: "flush-dns",
-      status: "simulated",
+      status: "success",
       title: "Flush DNS cache",
-      message: "Simulated fix"
+      message: "Test fix"
     });
 
     expect(verification.status).toBe("resolved");
@@ -26,14 +26,14 @@ describe("repair verification", () => {
   });
 
   it("marks a repair as unchanged when the verification scan keeps the same failure", () => {
-    const beforeScan = createMockScanResult("internet-unreachable");
-    const afterScan = createMockScanResult("internet-unreachable");
+    const beforeScan = createScenarioScanResult("internet-unreachable");
+    const afterScan = createScenarioScanResult("internet-unreachable");
 
     const verification = buildRepairVerification(beforeScan, afterScan, {
       fixId: "generate-wlan-report",
-      status: "simulated",
+      status: "success",
       title: "Generate WLAN report",
-      message: "Simulated fix"
+      message: "Test fix"
     });
 
     expect(verification.status).toBe("unchanged");
@@ -41,7 +41,7 @@ describe("repair verification", () => {
   });
 
   it("builds a blocked verification summary when a fix does not execute", () => {
-    const beforeScan = createMockScanResult("dhcp-apipa");
+    const beforeScan = createScenarioScanResult("dhcp-apipa");
 
     const verification = buildRepairBlockedVerification(beforeScan, {
       fixId: "restart-adapter",

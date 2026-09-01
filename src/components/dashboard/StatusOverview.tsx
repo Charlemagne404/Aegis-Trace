@@ -15,6 +15,7 @@ type StatusOverviewProps = {
   diagnosis: OverallDiagnosis;
   liveNodes: DiagnosticNode[];
   completedChecks: number;
+  hasCompletedScan: boolean;
   lastRunAt: string;
   scanDurationMs?: number;
   isScanning: boolean;
@@ -28,10 +29,11 @@ type StatusOverviewProps = {
 function getCheckedStageCount(
   scanProgress: ScanProgress | undefined,
   totalStages: number,
-  isScanning: boolean
+  isScanning: boolean,
+  hasCompletedScan: boolean
 ) {
   if (!isScanning) {
-    return totalStages;
+    return hasCompletedScan ? totalStages : 0;
   }
 
   if (scanProgress?.kind === "scan-finished") {
@@ -52,6 +54,7 @@ export function StatusOverview({
   diagnosis,
   liveNodes,
   completedChecks,
+  hasCompletedScan,
   lastRunAt,
   scanDurationMs,
   isScanning,
@@ -61,13 +64,27 @@ export function StatusOverview({
   scanActionReason,
   onRunScan
 }: StatusOverviewProps) {
+  const scanComplete = hasCompletedScan ?? diagnosis.id !== "not-scanned";
+  const scanPending = !isScanning && !scanComplete;
   const liveProblemNode = liveNodes.find(
     (node) => node.status === "failed" || node.status === "warning"
   );
-  const isProblemState = !["info", "low"].includes(diagnosis.severity);
-  const shouldShowProblemState = isScanning ? Boolean(liveProblemNode) : isProblemState;
-  const severity = isScanning ? liveProblemNode?.severity ?? "info" : diagnosis.severity;
-  const checkedStages = getCheckedStageCount(scanProgress, totalTimelineNodes, isScanning);
+  const isAwaitingScan = !hasCompletedScan && !isScanning;
+  const isProblemState = hasCompletedScan && !["info", "low"].includes(diagnosis.severity);
+  const shouldShowProblemState = isScanning
+    ? Boolean(liveProblemNode)
+    : scanComplete && isProblemState;
+  const severity = isScanning
+    ? liveProblemNode?.severity ?? "info"
+    : scanComplete
+      ? diagnosis.severity
+      : "info";
+  const checkedStages = getCheckedStageCount(
+    scanProgress,
+    totalTimelineNodes,
+    isScanning,
+    hasCompletedScan
+  );
   const activeStage =
     isScanning && typeof scanProgress?.nodeIndex === "number"
       ? Math.min(scanProgress.nodeIndex + 1, totalTimelineNodes)
@@ -84,37 +101,46 @@ export function StatusOverview({
               100
           )
         )
-    : 100;
+    : hasCompletedScan
+      ? 100
+      : 0;
   const statusHeadline = shouldShowProblemState
     ? isScanning && liveProblemNode
       ? `${liveProblemNode.label} needs attention`
       : "Problems detected"
     : isScanning
       ? "Tracing your connection"
-      : "Connection looks healthy";
+      : isAwaitingScan
+        ? "Ready to trace your connection"
+        : "Connection looks healthy";
   const severityBars = {
-    info: 2,
+    info: isAwaitingScan ? 0 : 2,
     low: 3,
     medium: 4,
     high: 5,
     critical: 6
   }[severity];
-  const lastRunLabel = new Date(lastRunAt).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  const lastRunLabel = hasCompletedScan
+    ? new Date(lastRunAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit"
+      })
+    : "Not run yet";
   const statusLabel = isScanning
     ? "Scanning now"
-    : shouldShowProblemState
-      ? "Needs attention"
-      : "All clear";
+    : isAwaitingScan
+      ? "Awaiting scan"
+      : shouldShowProblemState
+        ? "Needs attention"
+        : "All clear";
   const statusDescription = isScanning
     ? liveProblemNode?.summary ??
       scanProgress?.message ??
       "Aegis is moving through the connection chain and will stop the story at the first meaningful break."
       : diagnosis.summary;
-  const completionLabel =
-    typeof scanDurationMs === "number"
+  const completionLabel = !hasCompletedScan
+    ? "Run a live scan to begin"
+    : typeof scanDurationMs === "number"
       ? `Finished in ${(scanDurationMs / 1000).toFixed(1)}s`
       : "No duration";
 
@@ -136,9 +162,11 @@ export function StatusOverview({
               "scan-status-icon relative grid h-[60px] w-[60px] shrink-0 place-items-center rounded-[20px] border sm:h-[68px] sm:w-[68px] sm:rounded-[22px]",
               isScanning
                 ? "border-cyan-300/35 bg-cyan-300/[0.07] text-cyan-100"
-                : shouldShowProblemState
-                  ? "border-[#ff6a5a]/35 bg-[#ff6a5a]/[0.06] text-[#ff6a5a]"
-                  : "border-[#54d786]/30 bg-[#54d786]/[0.06] text-[#54d786]"
+                : isAwaitingScan
+                  ? "border-[#63a5ff]/30 bg-[#63a5ff]/[0.06] text-[#9bc5ff]"
+                  : shouldShowProblemState
+                    ? "border-[#ff6a5a]/35 bg-[#ff6a5a]/[0.06] text-[#ff6a5a]"
+                    : "border-[#54d786]/30 bg-[#54d786]/[0.06] text-[#54d786]"
             )}
           >
             <span
@@ -146,7 +174,8 @@ export function StatusOverview({
                 "pointer-events-none absolute inset-[-9px] rounded-[26px] opacity-0 blur-xl",
                 isScanning && "scan-pulse-ring opacity-100",
                 !isScanning && shouldShowProblemState && "timeline-failure-halo opacity-100",
-                !isScanning && !shouldShowProblemState && "bg-[#54d786]/10 opacity-100"
+                !isScanning && isAwaitingScan && "bg-[#63a5ff]/10 opacity-100",
+                !isScanning && !isAwaitingScan && !shouldShowProblemState && "bg-[#54d786]/10 opacity-100"
               )}
             />
             {isScanning ? (
@@ -176,9 +205,11 @@ export function StatusOverview({
                   "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em]",
                   isScanning
                     ? "border-cyan-300/25 bg-cyan-300/[0.08] text-cyan-100"
-                    : shouldShowProblemState
-                      ? "border-[#ff6a5a]/25 bg-[#ff6a5a]/[0.08] text-[#ffb0a8]"
-                      : "border-[#54d786]/25 bg-[#54d786]/[0.08] text-[#8ae6af]"
+                    : isAwaitingScan
+                      ? "border-[#63a5ff]/25 bg-[#63a5ff]/[0.08] text-[#9bc5ff]"
+                      : shouldShowProblemState
+                        ? "border-[#ff6a5a]/25 bg-[#ff6a5a]/[0.08] text-[#ffb0a8]"
+                        : "border-[#54d786]/25 bg-[#54d786]/[0.08] text-[#8ae6af]"
                 )}
               >
                 <span
@@ -186,9 +217,11 @@ export function StatusOverview({
                     "h-1.5 w-1.5 rounded-full",
                     isScanning
                       ? "bg-cyan-300 animate-pulse"
-                      : shouldShowProblemState
-                        ? "bg-[#ff6a5a]"
-                        : "bg-[#54d786]"
+                      : isAwaitingScan
+                        ? "bg-[#63a5ff]"
+                        : shouldShowProblemState
+                          ? "bg-[#ff6a5a]"
+                          : "bg-[#54d786]"
                   )}
                 />
                 {statusLabel}
@@ -211,16 +244,27 @@ export function StatusOverview({
             <p
               className={cn(
                 "text-[1.05rem] font-semibold tracking-[-0.01em]",
-                shouldShowProblemState ? "text-[#ff6a5a]" : "text-[#54d786]"
+                isAwaitingScan
+                  ? "text-[#9bc5ff]"
+                  : shouldShowProblemState
+                    ? "text-[#ff6a5a]"
+                    : "text-[#54d786]"
               )}
             >
-              {isScanning && !liveProblemNode ? "Building" : severityLabels[severity]}
+              {isScanning && !liveProblemNode
+                ? "Building"
+                : isAwaitingScan
+                  ? "Not evaluated"
+                  : severityLabels[severity]}
             </p>
             {!isScanning ? (
               <span className="text-xs text-slate-500">{diagnosis.confidence}% confidence</span>
             ) : null}
           </div>
-          <div className="mt-2 flex gap-1.5" aria-label={`${severityLabels[severity]} severity`}>
+          <div
+            className="mt-2 flex gap-1.5"
+            aria-label={isAwaitingScan ? "Severity not evaluated" : `${severityLabels[severity]} severity`}
+          >
             {Array.from({ length: 6 }, (_, index) => (
               <span
                 key={index}
@@ -240,18 +284,30 @@ export function StatusOverview({
         <div className="scan-overview-metric border-t border-[color:var(--aegis-line)] pt-3 xl:border-l xl:border-t-0 xl:px-5 xl:py-1">
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500">
-              {isScanning ? "Live progress" : "Diagnostics completed"}
+              {isScanning
+                ? "Live progress"
+                : hasCompletedScan
+                  ? "Diagnostics completed"
+                  : "Scan status"}
             </p>
             <span className="text-xs font-medium text-slate-300">
               {isScanning
                 ? `${checkedStages} / ${totalTimelineNodes} stages`
-                : `${completedChecks} checks`}
+                : hasCompletedScan
+                  ? `${completedChecks} checks`
+                  : "Not run"}
             </span>
           </div>
           <div
             className="mt-3 h-2 overflow-hidden rounded-full bg-[#1d2a3f] ring-1 ring-white/[0.04]"
             role="progressbar"
-            aria-label={isScanning ? "Diagnostic scan progress" : "Diagnostic scan complete"}
+            aria-label={
+              isScanning
+                ? "Diagnostic scan progress"
+                : hasCompletedScan
+                  ? "Diagnostic scan complete"
+                  : "Diagnostic scan not run"
+            }
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(progressPercent)}
@@ -261,9 +317,11 @@ export function StatusOverview({
                 "h-full rounded-full shadow-[0_0_15px_rgba(75,141,255,0.28)]",
                 isScanning
                   ? "bg-[linear-gradient(90deg,#38bdf8_0%,#4b8dff_55%,#63a5ff_100%)]"
-                  : shouldShowProblemState
-                    ? "bg-[linear-gradient(90deg,#ff8a7e_0%,#ff6257_100%)]"
-                    : "bg-[linear-gradient(90deg,#54d786_0%,#65e4a0_100%)]"
+                  : isAwaitingScan
+                    ? "bg-[#334b73]"
+                    : shouldShowProblemState
+                      ? "bg-[linear-gradient(90deg,#ff8a7e_0%,#ff6257_100%)]"
+                      : "bg-[linear-gradient(90deg,#54d786_0%,#65e4a0_100%)]"
               )}
               initial={false}
               animate={{ width: `${progressPercent}%` }}

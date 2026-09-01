@@ -61,6 +61,7 @@ export function DiagnosticTimeline({
   const completedStageCount = isScanning
     ? completedNodeIds.length
     : nodes.filter((node) => !["pending", "running"].includes(node.status)).length;
+  const hasEvaluatedStages = completedStageCount > 0;
   const attentionCount = nodes.filter(
     (node) => node.status === "failed" || node.status === "warning"
   ).length;
@@ -122,12 +123,16 @@ export function DiagnosticTimeline({
               ? scanProgress?.nodeLabel
                 ? `Checking ${scanProgress.nodeLabel}`
                 : "Preparing scan"
-              : attentionCount
-                ? `${attentionCount} stage${attentionCount === 1 ? "" : "s"} need attention`
-                : "All stages passed"}
+              : !hasEvaluatedStages
+                ? "Not evaluated"
+                : attentionCount
+                  ? `${attentionCount} stage${attentionCount === 1 ? "" : "s"} need attention`
+                  : "All stages passed"}
           </span>
           <span className="font-medium text-slate-400">
-            {isScanning ? `${completedStageCount}/${nodes.length}` : `${nodes.length} stages`}
+            {isScanning || !hasEvaluatedStages
+              ? `${completedStageCount}/${nodes.length}`
+              : `${nodes.length} stages`}
           </span>
         </div>
       </div>

@@ -22,7 +22,7 @@ type FooterMetricsState = {
 const EMPTY_HISTORY = Array<number | null>(FOOTER_HISTORY_LIMIT).fill(null);
 
 const INITIAL_STATE: FooterMetricsState = {
-  source: "browser",
+  source: "unavailable",
   collectedAt: null,
   uptimeSeconds: null,
   cpuUsagePercent: null,
