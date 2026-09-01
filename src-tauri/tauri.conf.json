@@ -29,7 +29,7 @@
     "active": true,
     "targets": "all",
     "publisher": "Aegis Trace",
-    "homepage": "https://github.com/charlemagne404/NetFix",
+    "homepage": "https://github.com/charlemagne404/Aegis-Trace",
     "shortDescription": "Visual Wi-Fi and network diagnostics for Windows, macOS, and Linux.",
     "longDescription": "Aegis Trace explains where the connection chain breaks, shows evidence, and offers allowlisted repairs only after diagnosis.",
     "icon": [

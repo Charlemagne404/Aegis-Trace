@@ -24,7 +24,7 @@ What is still limited:
 - Real diagnostics and repair execution work in the Windows, macOS, and Linux Tauri runtimes. Linux uses the standard `ip`, `nmcli`, `resolvectl`, `getent`, `ping`, and `curl` toolchain where available, and clearly records partial coverage when a distribution omits an optional tool.
 - The browser entry point serves the product site; live diagnostics and repairs require the installed Tauri desktop app.
 - Runtime validation on real Windows hardware is still needed for broader confidence.
-- Code-signing and polished release automation are scaffolded, not finished.
+- Tagged releases are built on native Windows, macOS, and Linux GitHub runners and uploaded to GitHub Releases. Code-signing and notarization are still required before presenting a release as fully trusted.
 
 ## Safety Model
 
@@ -95,3 +95,14 @@ See [`docs/platform-support.md`](./docs/platform-support.md) for the platform su
 - Windows installer targets are configured in [`src-tauri/tauri.windows.conf.json`](./src-tauri/tauri.windows.conf.json).
 - Optional signing overlay guidance lives in [`docs/windows-release.md`](./docs/windows-release.md).
 - ZIP case files include a plain-language summary, structured scan JSON, a styled HTML timeline report, manifest metadata, and raw per-node output when available.
+
+## Publishing a Release
+
+Create and push a version tag from the commit you want to publish:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The [`Build and publish release`](./.github/workflows/release.yml) workflow builds Windows `.exe`/`.msi`, macOS Intel and Apple Silicon `.dmg`, and Linux `.AppImage`/`.deb`/`.rpm` artifacts, then publishes them with SHA-256 checksums to the matching GitHub Release.

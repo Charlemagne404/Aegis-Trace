@@ -1,6 +1,6 @@
 # Windows Release Guide
 
-This repo currently includes the Windows packaging pieces needed to build unsigned installers, compile-check the codebase in CI, and layer in signing later.
+This repo includes the Windows packaging pieces needed to build unsigned installers locally or through the tagged release workflow, compile-check the codebase in CI, and layer in signing later.
 
 ## Current Release State
 
@@ -14,11 +14,13 @@ Committed today:
    Provides an optional signing overlay for future release builds.
 4. `src-tauri/relic.conf.example`
    Documents the expected `relic` configuration shape for Azure Key Vault signing.
+5. `.github/workflows/release.yml`
+   Builds Windows, macOS, and Linux release artifacts and uploads them to GitHub Releases when a `v*` tag is pushed.
 
 Not finished yet:
 
 - No checked-in production signing certificate or `relic.conf`.
-- No automated signed release workflow.
+- The automated release workflow currently publishes unsigned artifacts.
 - No guarantee yet that installer behavior has been validated across real Windows hardware combinations.
 
 ## Local Unsigned Installer Build

@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import "./landing.css";
 
-const releaseUrl = "https://github.com/Charlemagne404/NetFix/releases";
+const releaseUrl = "https://github.com/Charlemagne404/Aegis-Trace/releases";
 
 const timelineStages = [
   { label: "Device", Icon: Monitor, state: "pass" },
@@ -200,7 +200,7 @@ export function LandingPage() {
       <footer className="landing-footer">
         <a className="landing-brand" href="#top"><span className="brand-mark"><ShieldCheck aria-hidden="true" /></span><span>Aegis <em>Trace</em></span></a>
         <p>Visual network diagnostics for Windows, macOS, and Linux.</p>
-        <a href="https://github.com/Charlemagne404/NetFix" target="_blank" rel="noreferrer">GitHub <ExternalLink aria-hidden="true" /></a>
+        <a href="https://github.com/Charlemagne404/Aegis-Trace" target="_blank" rel="noreferrer">GitHub <ExternalLink aria-hidden="true" /></a>
       </footer>
     </main>
   );
